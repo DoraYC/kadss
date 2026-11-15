@@ -50,6 +50,25 @@ RUN_ID_PARAMS = (
     "cost",
 )
 
+RESULT_ORDER_KEYS = {
+    "t_kadss_abc_xyz_result": ("run_id", "material_id"),
+    "t_kadss_safety_stock_result": ("run_id", "material_id", "service_level"),
+    "t_kadss_kitting_result": (
+        "run_id",
+        "order_id",
+        "material_id",
+        "service_level",
+        "strategy",
+    ),
+    "t_kadss_kitting_probability": ("run_id", "order_id"),
+    "t_kadss_cost_simulation_result": (
+        "run_id",
+        "material_id",
+        "strategy",
+        "service_level",
+    ),
+}
+
 
 def _data_digest(data: dict[str, pd.DataFrame]) -> str:
     """基础数据内容摘要，数据重新生成后 run_id 会随内容变化。"""
@@ -122,6 +141,23 @@ def result_run_ids(db_path: str | Path) -> dict[str, set[str]]:
             )
             for table in RESULT_TABLES
         }
+
+
+def load_results(
+    db_path: str | Path, run_id: str | None = None
+) -> dict[str, pd.DataFrame]:
+    """只读 5 张结果表；给定 run_id 时只取该版本，避免跨 run 聚合。"""
+    frames: dict[str, pd.DataFrame] = {}
+    with closing(sqlite3.connect(db_path)) as conn:
+        for table in RESULT_TABLES:
+            query = f"SELECT * FROM {table}"
+            params: tuple[str, ...] = ()
+            if run_id is not None:
+                query += " WHERE run_id = ?"
+                params = (run_id,)
+            query += " ORDER BY " + ", ".join(RESULT_ORDER_KEYS[table])
+            frames[table] = pd.read_sql_query(query, conn, params=params)
+    return frames
 
 
 def verify_results(
