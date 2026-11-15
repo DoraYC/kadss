@@ -14,6 +14,7 @@
 | 物料数 | 200 |
 | 需求订单数 | 50 |
 | 历史需求天数 | 90 |
+| 短期历史物料占比 / 天数 | 0.03 / 10 |
 | 需求波动系数 | 1.0 |
 | 交期延误均值(天) | 6.0 |
 | 交期延误标准差(天) | 2.5 |
@@ -27,11 +28,11 @@
 | 表 | 行数 |
 | --- | --- |
 | t_kadss_material | 200 |
-| t_kadss_bom | 209 |
+| t_kadss_bom | 229 |
 | t_kadss_inventory | 200 |
 | t_kadss_purchase_order | 1176 |
 | t_kadss_demand_order | 50 |
-| t_kadss_demand_history | 18000 |
+| t_kadss_demand_history | 17520 |
 
 ## 物料分布
 
@@ -60,7 +61,7 @@
 | 生产工单 | 6 |
 
 - `required_date` 区间：2026-11-22 ~ 2027-01-12
-- BOM 父件数：53；替代料行：1
+- BOM 父件数：53；替代料行：12
 
 ## 数据校验
 

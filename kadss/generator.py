@@ -99,6 +99,15 @@ def _build_demand_history(
     spike_rate = float(noise_cfg["demand_spike_rate"])
     spike_factor = float(noise_cfg["demand_spike_factor"])
     volatility = float(scen["demand_volatility"])
+    limited_days = int(cfg["scale"]["limited_history_days"])
+    limited_share = float(cfg["scale"]["limited_history_share"])
+    material_count = len(materials["material_ids"])
+    limited_count = int(round(material_count * limited_share))
+    limited = (
+        set(rng.choice(material_count, size=limited_count, replace=False).tolist())
+        if limited_count
+        else set()
+    )
 
     rows: list[tuple[int, str, str, float]] = []
     history_id = 1
@@ -110,8 +119,10 @@ def _build_demand_history(
         quantity[rng.random(days) < zero_rate] = 0.0
         quantity[rng.random(days) < spike_rate] *= spike_factor
         quantity = np.round(quantity, 0)
-        for offset, value in enumerate(quantity):
-            rows.append((history_id, material_id, _date(dates[offset]), float(value)))
+        # 少量物料只有短期历史，用于验证样本不足时的降级与「数据不足」标记
+        keep = limited_days if index in limited else days
+        for offset, value in enumerate(quantity[-keep:]):
+            rows.append((history_id, material_id, _date(dates[-keep:][offset]), float(value)))
             history_id += 1
 
     return pd.DataFrame(
@@ -193,7 +204,7 @@ def _build_bom(
                     bom_id,
                     material_ids[parent_index],
                     material_ids[int(child_index)],
-                    float(np.round(rng.uniform(0.5, 5.0), 2)),
+                    float(np.round(rng.uniform(0.5, 2.5), 2)),
                     "PCS",
                     0,
                     0,
@@ -211,7 +222,7 @@ def _build_bom(
                         bom_id,
                         material_ids[parent_index],
                         material_ids[int(rng.choice(remaining))],
-                        float(np.round(rng.uniform(0.5, 5.0), 2)),
+                        float(np.round(rng.uniform(0.5, 2.5), 2)),
                         "PCS",
                         1,
                         0,
@@ -339,7 +350,7 @@ def _build_demand_orders(
                 "order_id": f"SO2026{sequence:04d}",
                 "order_type": order_type,
                 "material_id": material_ids[index],
-                "qty": float(max(1.0, round(monthly_level[index] * rng.uniform(0.1, 0.6)))),
+                "qty": float(max(1.0, round(monthly_level[index] * rng.uniform(0.03, 0.15)))),
                 "required_date": _date(
                     base_date + pd.Timedelta(days=int(rng.integers(3, 61)))
                 ),

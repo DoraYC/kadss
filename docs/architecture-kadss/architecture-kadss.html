@@ -1,0 +1,1019 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KADSS 技术架构 · 轻量 TAD</title>
+<style>
+  :root {
+    --ink: #101828;
+    --ink-2: #344054;
+    --muted: #667085;
+    --line: #e4e7ec;
+    --line-2: #d0d5dd;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --teal: #0b6b5b;
+    --teal-soft: #e6f4f1;
+    --blue: #1d4ed8;
+    --blue-soft: #eef2ff;
+    --amber: #b54708;
+    --amber-soft: #fff4e5;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .04);
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code, .mono {
+    font-family: var(--mono);
+    font-size: .86em;
+    background: #f2f4f7;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: .1em .38em;
+    color: #1d2939;
+    white-space: nowrap;
+  }
+
+  .wrap {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 420px at 12% -10%, rgba(20, 184, 166, .22), transparent 60%),
+      radial-gradient(700px 380px at 92% 0%, rgba(245, 158, 11, .16), transparent 55%),
+      #0b1220;
+    color: #f8fafc;
+    padding: 64px 0 56px;
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, .09) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, .09) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,.75), transparent 85%);
+    pointer-events: none;
+  }
+
+  .hero .wrap { position: relative; z-index: 1; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #99f6e4;
+    margin-bottom: 18px;
+  }
+
+  h1 {
+    font-size: clamp(34px, 5vw, 58px);
+    line-height: 1.1;
+    letter-spacing: -.03em;
+    margin: 0 0 14px;
+    font-weight: 700;
+  }
+
+  .lede {
+    font-size: clamp(15px, 2vw, 18px);
+    color: #cbd5e1;
+    max-width: 720px;
+    margin: 0 0 28px;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, .34);
+    background: rgba(15, 23, 42, .42);
+    padding: 5px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .chip b { color: #fff; font-weight: 600; }
+
+  /* ---------- Nav ---------- */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(247, 248, 250, .92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .nav .wrap {
+    display: flex;
+    gap: 22px;
+    overflow-x: auto;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    scrollbar-width: none;
+  }
+
+  .nav .wrap::-webkit-scrollbar { display: none; }
+
+  .nav a {
+    color: var(--ink-2);
+    font-size: 13px;
+    white-space: nowrap;
+    padding: 2px 0;
+    border-bottom: 2px solid transparent;
+  }
+
+  .nav a:hover { color: var(--teal); border-bottom-color: var(--teal); text-decoration: none; }
+
+  /* ---------- Sections ---------- */
+  main { padding: 20px 0 40px; }
+
+  section { padding: 44px 0 8px; scroll-margin-top: 64px; }
+
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--teal);
+    letter-spacing: .12em;
+  }
+
+  h2 {
+    font-size: clamp(22px, 3vw, 30px);
+    line-height: 1.25;
+    letter-spacing: -.02em;
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .sec-sub { color: var(--muted); font-size: 14px; margin: -8px 0 22px; max-width: 820px; }
+
+  /* ---------- Stats ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin: 8px 0 26px;
+  }
+
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .stat .n {
+    font-family: var(--mono);
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -.03em;
+    line-height: 1;
+    color: var(--ink);
+  }
+
+  .stat .l { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+
+  /* ---------- Callout ---------- */
+  .callout {
+    display: flex;
+    gap: 14px;
+    background: var(--teal-soft);
+    border: 1px solid #b7e4dc;
+    border-left: 4px solid var(--teal);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 20px 0;
+    color: #0b3d37;
+    font-size: 14px;
+  }
+
+  .callout .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+    letter-spacing: .08em;
+    padding-top: 3px;
+    white-space: nowrap;
+  }
+
+  /* ---------- Flow ---------- */
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 4px 2px 14px;
+    margin-bottom: 8px;
+  }
+
+  .stage {
+    flex: 1 0 168px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 16px 14px;
+    position: relative;
+    box-shadow: var(--shadow);
+  }
+
+  .stage .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--teal);
+    letter-spacing: .1em;
+    margin-bottom: 8px;
+  }
+
+  .stage h4 { margin: 0 0 6px; font-size: 15px; }
+  .stage p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+
+  .flow .arrow {
+    align-self: center;
+    color: var(--line-2);
+    font-size: 18px;
+    flex: 0 0 auto;
+  }
+
+  .stage.accent { border-color: #b7e4dc; background: linear-gradient(180deg, #fff, #f4fbf9); }
+
+  /* ---------- Pipeline cards ---------- */
+  .pipe {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 8px;
+  }
+
+  .pipe-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .pipe-card .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+
+  .pipe-card .idx {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .08em;
+  }
+
+  .pipe-card .mod { font-family: var(--mono); font-size: 11.5px; color: var(--teal); background: var(--teal-soft); border: 1px solid #c9e9e3; padding: 2px 7px; border-radius: 999px; }
+
+  .pipe-card h4 { margin: 0 0 8px; font-size: 15.5px; }
+
+  .pipe-card p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
+
+  .pipe-card .formula {
+    display: block;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #0b3d37;
+    background: #f4fbf9;
+    border: 1px dashed #b7e4dc;
+    border-radius: 8px;
+    padding: 8px 10px;
+    white-space: normal;
+    line-height: 1.6;
+  }
+
+  /* ---------- Dependency ---------- */
+  .dep {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .dep-box {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .dep-box h4 { margin: 0 0 12px; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.ok { background: var(--teal); }
+  .dot.no { background: var(--red); }
+
+  .dep-box ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13.5px; }
+  .dep-box li { margin: 6px 0; }
+
+  /* ---------- AD cards ---------- */
+  .ad {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .ad-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  .ad-id {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #fff;
+    background: var(--ink);
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: .04em;
+  }
+
+  .ad h3 { margin: 0; font-size: 16.5px; line-height: 1.4; flex: 1 1 auto; }
+
+  .status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+
+  .status.done { color: var(--teal); background: var(--teal-soft); border: 1px solid #c9e9e3; }
+  .status.todo { color: var(--amber); background: var(--amber-soft); border: 1px solid #f5d0a9; }
+
+  .ad-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; padding: 7px 0; border-top: 1px dashed var(--line); font-size: 13.5px; }
+  .ad-row:first-of-type { border-top: 0; }
+  .ad-row .lab { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; padding-top: 2px; }
+  .ad-row .val { color: var(--ink-2); }
+  .ad-row .val ul { margin: 0; padding-left: 18px; }
+  .ad-row .val li { margin: 4px 0; }
+
+  /* ---------- Tables ---------- */
+  .table-shell {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .table-shell + .table-shell { margin-top: 16px; }
+
+  .table-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    color: var(--muted);
+    padding: 13px 18px;
+    background: #fcfcfd;
+    border-bottom: 1px solid var(--line);
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+  th, td { text-align: left; padding: 10px 16px; vertical-align: top; border-bottom: 1px solid #f0f1f4; }
+
+  th { font-size: 11.5px; color: var(--muted); font-weight: 600; letter-spacing: .04em; background: #fcfcfd; }
+
+  tr:last-child td { border-bottom: 0; }
+
+  td code { white-space: normal; }
+
+  .tbl-scroll { overflow-x: auto; }
+
+  .erd {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .erd-note { font-size: 12.5px; color: var(--muted); margin: 10px 2px 18px; }
+
+  /* ---------- Gap ---------- */
+  .gap-table td:nth-child(1) { width: 150px; font-weight: 600; }
+  .gap-table td:nth-child(3) { width: 96px; }
+
+  .tag-chip {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+  .tag-chip.fix { color: var(--red); background: var(--red-soft); border: 1px solid #fecdca; }
+  .tag-chip.add { color: var(--amber); background: var(--amber-soft); border: 1px solid #f5d0a9; }
+  .tag-chip.dec { color: var(--blue); background: var(--blue-soft); border: 1px solid #c7d7fe; }
+
+  /* ---------- Questions ---------- */
+  .q-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+  .q-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .q-card.blocker { border-color: #fecdca; background: linear-gradient(180deg, #fff, #fffbfa); }
+
+  .q-card .qid { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .08em; }
+
+  .q-card h4 { margin: 6px 0 8px; font-size: 14.5px; line-height: 1.5; }
+
+  .q-card p { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+  /* ---------- Deferred ---------- */
+  .deferred {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+    margin-top: 16px;
+  }
+
+  .deferred h4 { margin: 0 0 10px; font-size: 14.5px; }
+
+  .deferred ul { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 13.5px; }
+  .deferred li { margin: 7px 0; }
+
+  /* ---------- Footer ---------- */
+  footer {
+    margin-top: 56px;
+    border-top: 1px solid var(--line);
+    background: #fff;
+    padding: 34px 0 44px;
+  }
+
+  footer .foot-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px; }
+
+  footer h5 { margin: 0 0 8px; font-size: 12px; letter-spacing: .08em; color: var(--muted); font-family: var(--mono); text-transform: uppercase; }
+
+  footer p { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+  .foot-links { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 980px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .pipe { grid-template-columns: repeat(2, 1fr); }
+    .q-grid { grid-template-columns: 1fr; }
+    footer .foot-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 720px) {
+    body { font-size: 14px; }
+    .wrap { padding: 0 18px; }
+    .hero { padding: 44px 0 40px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .pipe, .dep { grid-template-columns: 1fr; }
+    .flow { flex-direction: column; }
+    .flow .arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 26px; }
+    .stage { flex: 0 0 auto; }
+    .ad-row { grid-template-columns: 1fr; gap: 2px; }
+    .ad-row .lab { padding-top: 4px; }
+  }
+
+  @media print {
+    .nav, .hero::after { display: none; }
+    .hero { background: #0b1220 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { background: #fff; }
+    section { break-inside: avoid; padding-top: 24px; }
+    .ad, .pipe-card, .stat, .q-card, .deferred, .table-shell { box-shadow: none; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Technical Architecture · Lightweight TAD</div>
+    <h1>KADSS 技术架构</h1>
+    <p class="lede">供应链齐套预警与动态安全库存优化系统 · 架构脊柱。只固定跨模块必须一致的决定，其余交给代码。</p>
+    <div class="chips">
+      <span class="chip">PRD <b>v1.1 (MVP)</b></span>
+      <span class="chip">形态 <b>Python 批处理 + Streamlit</b></span>
+      <span class="chip">数据 <b>SQLite 主源</b></span>
+      <span class="chip">场景 <b>正常 / 高波动 / 交期恶化</b></span>
+      <span class="chip">日期 <b>2026-11-15</b></span>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="wrap">
+    <a href="#paradigm">设计范式</a>
+    <a href="#pipeline">计算管道</a>
+    <a href="#deps">依赖方向</a>
+    <a href="#invariants">九条不变量</a>
+    <a href="#data">数据模型</a>
+    <a href="#capability">能力映射</a>
+    <a href="#gaps">落地差距</a>
+    <a href="#boundary">边界与决策</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="paradigm">
+    <div class="sec-head"><span class="sec-num">01</span><h2>设计范式</h2></div>
+    <p class="sec-sub">分层批量管道（pipes-and-filters）+ 只读展示层。数据单向流动，计算层不依赖展示层。</p>
+
+    <div class="stats">
+      <div class="stat"><div class="n">7</div><div class="l">用户故事 US-1 ~ US-7</div></div>
+      <div class="stat"><div class="n">9</div><div class="l">架构不变量 AD-1 ~ AD-9</div></div>
+      <div class="stat"><div class="n">11</div><div class="l">SQLite 数据表（6 基础 + 5 结果）</div></div>
+      <div class="stat"><div class="n">3</div><div class="l">预计算场景，每场景一库</div></div>
+    </div>
+
+    <div class="flow">
+      <div class="stage accent">
+        <div class="k">LAYER 01</div>
+        <h4>参数层</h4>
+        <p><code>config/kadss.json</code><br>场景、规模、种子、阈值、档位的唯一来源</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="k">LAYER 02</div>
+        <h4>数据层</h4>
+        <p><code>generator → validation → store</code><br>生成 6 张基础表，校验后落库</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="k">LAYER 03</div>
+        <h4>计算层</h4>
+        <p><code>abc_xyz → safety_stock → kitting → probability / cost</code><br>全部业务公式的唯一实现</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="k">LAYER 04</div>
+        <h4>持久层</h4>
+        <p><code>data/&lt;scenario&gt;/kadss.db</code><br>SQLite 主源，CSV 只做导出</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage accent">
+        <div class="k">LAYER 05</div>
+        <h4>展示层</h4>
+        <p><code>app.py</code><br>只读结果 + 调用计算层函数做参数化重算</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="tag">阅读提示</div>
+      <div>这份文档是“架构脊柱”，不是完整设计说明书。它只记录那些一旦两处实现就会分叉的决定；表结构、函数签名与参数细节由 <code>db/schema.sql</code> 与 <code>kadss/</code> 代码拥有。</div>
+    </div>
+  </section>
+
+  <section id="pipeline">
+    <div class="sec-head"><span class="sec-num">02</span><h2>计算管道</h2></div>
+    <p class="sec-sub">离线批处理按固定顺序执行，结果落盘；看板只消费结果或在内存中做参数化重算。</p>
+
+    <div class="pipe">
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 01</span><span class="mod">abc_xyz</span></div>
+        <h4>ABC-XYZ 分层</h4>
+        <p>按消耗金额累计占比分 ABC，按周聚合需求的变异系数分 XYZ；样本不足的物料不强行分层。</p>
+        <span class="formula">CV = σ_weekly / avg_weekly；A ≤ 70%，B ≤ 90%</span>
+      </div>
+
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 02</span><span class="mod">safety_stock</span></div>
+        <h4>动态安全库存</h4>
+        <p>采购件取历史实际交期偏差；自制/外包件回退标准提前期并标记 <code>lt_source</code>。三档服务水平批量输出。</p>
+        <span class="formula">SS = Z × √(LT_avg × σ_d² + d_avg² × σ_LT²)</span>
+      </div>
+
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 03</span><span class="mod">kitting</span></div>
+        <h4>BOM 齐套分析</h4>
+        <p>多层递归展开，共享料按需求日期先到先得；替代料只标记不参与计算，缺口按可用量口径计算。</p>
+        <span class="formula">gap = max(毛需求 − max(可用量, 0), 0)</span>
+      </div>
+
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 04</span><span class="mod">probability</span></div>
+        <h4>齐套概率</h4>
+        <p>以总提前期分布为随机输入做蒙特卡洛；含低置信物料的订单输出 <code>null</code> 与“数据不足”。</p>
+        <span class="formula">P = 全部缺口物料在 required_date 前到货的模拟占比</span>
+      </div>
+
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 05</span><span class="mod">cost</span></div>
+        <h4>库存成本仿真</h4>
+        <p>固定与动态策略使用同一组需求与交期抽样，保证可比；输出库存金额、持有成本、缺料成本。</p>
+        <span class="formula">缺料成本 = 缺料数量 × 单价 × 惩罚系数</span>
+      </div>
+
+      <div class="pipe-card">
+        <div class="top"><span class="idx">STEP 06</span><span class="mod">pipeline</span></div>
+        <h4>结果落盘</h4>
+        <p>计算 <code>run_id</code>，清空并重写 5 张结果表；看板按场景读取，不跨 run 聚合。</p>
+        <span class="formula">run_id = scenario + 参数哈希 + 基础数据摘要</span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="tag">口径权衡</div>
+      <div>高服务水平 ≠ 所有指标都变好：它降低缺货成本，但提高库存占用与可用量约束。策略对比中的缺料率按“预留安全库存后的可用量”计算，与缺料成本方向可能相反。</div>
+    </div>
+  </section>
+
+  <section id="deps">
+    <div class="sec-head"><span class="sec-num">03</span><h2>依赖方向</h2></div>
+    <p class="sec-sub">依赖方向本身就是规则：展示层可以依赖计算层，计算层不得反向依赖展示层或数据库驱动。</p>
+
+    <div class="dep">
+      <div class="dep-box">
+        <h4><span class="dot ok"></span>允许的依赖</h4>
+        <ul>
+          <li><code>app.py</code> → <code>kadss.*</code> 计算函数与常量</li>
+          <li><code>app.py</code> → <code>kadss.store</code> 的只读查询</li>
+          <li><code>kadss.build_*</code> → <code>kadss.*</code></li>
+          <li><code>kadss.pipeline</code> → 各计算模块</li>
+          <li><code>kadss.store / pipeline</code> → <code>sqlite3</code></li>
+        </ul>
+      </div>
+      <div class="dep-box">
+        <h4><span class="dot no"></span>禁止的依赖</h4>
+        <ul>
+          <li>计算模块 → <code>streamlit</code> / <code>app</code></li>
+          <li>计算模块 → <code>sqlite3</code>（读写都走 store / pipeline）</li>
+          <li>任何模块把 CSV 读回作为输入</li>
+          <li>看板内出现安全库存、缺口、概率、成本公式</li>
+          <li>结果表跨 <code>run_id</code> 或跨场景聚合</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="invariants">
+    <div class="sec-head"><span class="sec-num">04</span><h2>九条不变量</h2></div>
+    <p class="sec-sub">每条都满足三个条件：两个单元独立实现时可能冲突、选择不显然、且是真实取舍。<span class="mono">已确立</span> 表示由 PRD 决策或现有实现确立；<span class="mono">需落实</span> 表示本次新定。</p>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-1</span><h3>分层边界：展示层不得持有业务公式</h3><span class="status done">已确立</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">全部模块；US-1 ~ US-7</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">看板自建数据或复写公式，导致页面结论与批算结果、报告摘要不一致。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">只允许 <code>app.py → kadss.*</code>、<code>kadss.build_* → kadss.*</code>、<code>pipeline → 计算模块</code>、<code>store/pipeline → sqlite3</code>。计算模块不得 import <code>streamlit</code>、<code>app</code> 或 <code>sqlite3</code>；看板不得出现安全库存、缺口、概率、成本等公式。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-2</span><h3>持久化契约：SQLite 单一主源，run_id 覆盖写</h3><span class="status todo">需落实</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-1、US-4、US-6；6 张基础表与 5 张结果表</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">CSV 与 DB 双写漂移；旧参数结果混入看板；三个场景串库。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">
+        <ul>
+          <li>基础表只经 <code>store.write_dataset</code> 写入，结果表只经 <code>pipeline.write_results</code> 写入；CSV 只从 SQLite 导出，不得读回。</li>
+          <li>每场景一库，路径固定 <code>data/&lt;scenario&gt;/kadss.db</code>，场景名只来自配置。</li>
+          <li><code>run_id</code> 只由 <code>pipeline</code> 计算；参数哈希覆盖 seed、base_date、abc_xyz、safety_stock、kitting、probability、cost。</li>
+          <li>清空与写入同一事务，提交前断言 5 张结果表的 <code>run_id</code> 一致；读取基础表按主键排序后再算摘要。</li>
+          <li>读库前自检 5 张结果表 <code>run_id</code> 一致且与配置的 seed、base_date 匹配，不一致拒绝启动。</li>
+          <li>执行顺序固定：<code>build_dataset</code> → <code>build_results</code>。</li>
+        </ul>
+      </div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-3</span><h3>计算口径单点实现</h3><span class="status todo">需落实</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-2 ~ US-6</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">同一指标多处实现后产生偏差（可用量、缺口、Z 值、缺料率最易分叉）。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">每个业务量只有一个实现位置：ABC/XYZ → <code>abc_xyz</code>；安全库存与建议补货量 → <code>safety_stock</code>；BOM 展开与共享料分配、缺口 → <code>kitting</code>；概率与风险分级 → <code>probability</code>；成本 → <code>cost</code>；可用量 → <code>kadss.availability</code>；订单状态与物料/订单缺料率 → <code>kadss.metrics</code>（<code>gap_rates</code> 从 <code>build_results</code> 迁出）。新建两个模块一次性收口 <code>safety_stock</code>、<code>cost</code>、<code>probability</code>、<code>kitting.order_status</code> 的重复实现，作为看板接入的硬前置。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-4</span><h3>配置是唯一参数面</h3><span class="status done">已确立</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-1、US-3、US-6、US-7；全部阈值、档位、种子与场景差异</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">看板硬编码 Z 值或场景参数，与 <code>config/kadss.json</code> 漂移。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">阈值、服务水平、Z 值、惩罚系数、模拟次数、种子、场景参数只能来自 <code>load_config()</code>；<code>DEFAULTS</code> 仅作兜底。新增参数先入 <code>DEFAULTS</code> 再入 JSON。看板控件只把值作为函数入参，不得内置常量表或复制场景定义。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-5</span><h3>指标文案唯一来源</h3><span class="status done">已确立</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-6、US-7、D-1、D-7</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">看板、报告与文档对缺料率及口径说明的表述不一致。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val"><code>物料缺料率（按行数）</code>、<code>订单缺料率（按订单数）</code>、策略口径说明与权衡说明只能引用 <code>kadss.labels</code>；禁止内联字符串；禁止只写“缺料率”。空间受限时只允许 <code>物料缺料率(行)</code>、<code>订单缺料率(单)</code>。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-6</span><h3>置信度单向传播</h3><span class="status done">已确立</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-2、US-3、US-5</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">各模块自行判定低置信，导致同一物料在不同页面结论不同。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">低置信只由两处判定：ABC 的 <code>active_weeks &lt; min_periods</code>、安全库存的日需求或交期样本不足；<code>pipeline._confidence_map</code> 合并后注入齐套明细，下游只消费不重算。任一低置信物料 → 订单概率 <code>null</code>、风险“数据不足”、不参与排序。分层、安全库存、齐套与成本明细必须显示“数据置信度：低”，数值保留但标注，不得剔除后冒充完整结论。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-7</span><h3>共享料分配与策略口径隔离</h3><span class="status todo">需落实</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-4、US-6</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">共享料被各订单重复使用；不同策略或服务水平档位污染可用量；默认口径与策略口径混用。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">
+        <ul>
+          <li>订单按 <code>(required_date, order_id)</code> 升序单遍分配；每个 <code>(strategy, service_level)</code> 组合都从初始库存重新开始。</li>
+          <li><code>gap_qty = max(req_qty − max(available_qty, 0), 0)</code>；分配后 <code>remaining = max(available_qty − req_qty, 0)</code>；展开后按物料聚合，保证 <code>(order_id, material_id)</code> 唯一。</li>
+          <li><code>baseline</code> 不扣安全库存，只用于默认展示与概率；<code>fixed</code> / <code>dynamic</code> 扣对应策略安全库存，只用于策略对比。</li>
+          <li>BOM 只取 <code>is_substitute = 0</code> 且 <code>version = 'V1'</code> 的父子行；MVP 不按 <code>effective_date</code> 过滤、不展开 <code>is_phantom</code>。库存按物料唯一读取，计算前断言快照唯一。</li>
+        </ul>
+      </div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-8</span><h3>确定性与可复现</h3><span class="status done">已确立</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">KPI-1、KPI-2、US-3、US-5、US-6</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">同一配置重跑结果漂移；看板刷新后结论变化；<code>run_id</code> 失真。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">随机性只经 <code>seed</code>（主种子 + 场景偏移）派生；按实体派生时使用稳定标识（如 <code>zlib.crc32</code>），不得用行号或时间。落盘数据不得使用运行时 <code>now()</code>：基础表取业务事件日期，结果表统一取 <code>base_date 00:00:00</code>。同配置重复运行逐行一致、<code>run_id</code> 相同；两策略共享同一组抽样。</div></div>
+    </article>
+
+    <article class="ad">
+      <div class="ad-head"><span class="ad-id">AD-9</span><h3>看板只读边界与重算范围</h3><span class="status todo">需落实</span></div>
+      <div class="ad-row"><div class="lab">约束</div><div class="val">US-4、US-7、KPI-3、KPI-4</div></div>
+      <div class="ad-row"><div class="lab">防止</div><div class="val">看板现场重跑全流程导致卡顿；或死读落盘数据无法响应口径勾选。</div></div>
+      <div class="ad-row"><div class="lab">规则</div><div class="val">
+        <ul>
+          <li>场景切换只切换 SQLite 库，不触发生成或计算。</li>
+          <li>参数变更只能调用 <code>kadss</code> 函数在内存重算。缓存键固定为 <code>run_id + 可用量口径 + 服务水平 + 惩罚系数 + 模拟次数</code>（顺序固定）；ABC-XYZ 分层单独以 <code>run_id</code> 作一级缓存键。</li>
+          <li>勾选“安全库存”恒扣 <code>default_service_level</code> 的 <code>dynamic_ss</code>，标注口径，不与落盘 baseline 混用。</li>
+          <li>重算范围：可用量口径 → 齐套与缺料率；服务水平 → 安全库存与成本；惩罚系数/模拟次数 → 成本与概率；分层只随场景库变化。</li>
+          <li>重算结果不写回 SQLite；顶部版本信息取 <code>run_id</code> 与配置中的 seed、base_date、scale。</li>
+          <li>看板不得自建假数据或近似公式；现有 demo 数据路径必须移除。</li>
+        </ul>
+      </div></div>
+    </article>
+  </section>
+
+  <section id="data">
+    <div class="sec-head"><span class="sec-num">05</span><h2>数据模型与 ER 图</h2></div>
+    <p class="sec-sub">6 张基础表以物料主数据为中心，BOM 通过 parent / child 双外键关联；5 张结果表以 <code>run_id</code> 为版本维度。表名统一 <code>t_kadss_</code> 前缀。</p>
+
+    <svg class="erd" viewBox="0 0 1100 400" role="img" aria-label="KADSS 基础表 ER 图">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#98a2b3"/>
+        </marker>
+      </defs>
+
+      <!-- material -->
+      <rect x="350" y="12" width="400" height="120" rx="12" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="350" y="12" width="400" height="40" rx="12" fill="#101828"/>
+      <rect x="350" y="28" width="400" height="24" fill="#101828"/>
+      <text x="364" y="31" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" font-weight="600" fill="#ffffff">t_kadss_material</text>
+      <text x="364" y="45" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#cbd5e1">物料主数据</text>
+      <text x="364" y="70" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" fill="#344054">material_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan> · supply_type · unit_price</text>
+      <text x="364" y="90" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" fill="#344054">purchase_lt · production_lt</text>
+      <text x="364" y="110" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" fill="#344054">inspection_lt · logistics_lt</text>
+
+      <!-- connectors -->
+      <path d="M550 132 C550 158 122 148 122 174" fill="none" stroke="#98a2b3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M550 132 C550 158 336 148 336 174" fill="none" stroke="#98a2b3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M550 132 L550 174" fill="none" stroke="#98a2b3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M550 132 C550 158 764 148 764 174" fill="none" stroke="#98a2b3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M550 132 C550 158 978 148 978 174" fill="none" stroke="#98a2b3" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+      <!-- bom -->
+      <rect x="24" y="180" width="196" height="200" rx="10" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="24" y="180" width="196" height="40" rx="10" fill="#f2f4f7"/>
+      <rect x="24" y="196" width="196" height="24" fill="#f2f4f7"/>
+      <text x="34" y="197" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#101828">t_kadss_bom</text>
+      <text x="34" y="211" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#667085">物料清单</text>
+      <text x="34" y="240" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">bom_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan></text>
+      <text x="34" y="257" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">parent_material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="34" y="274" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">child_material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="34" y="291" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">quantity_per</text>
+      <text x="34" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">is_substitute</text>
+      <text x="34" y="325" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">version</text>
+
+      <!-- inventory -->
+      <rect x="238" y="180" width="196" height="200" rx="10" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="238" y="180" width="196" height="40" rx="10" fill="#f2f4f7"/>
+      <rect x="238" y="196" width="196" height="24" fill="#f2f4f7"/>
+      <text x="248" y="197" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#101828">t_kadss_inventory</text>
+      <text x="248" y="211" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#667085">库存快照</text>
+      <text x="248" y="240" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">inventory_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan></text>
+      <text x="248" y="257" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="248" y="274" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">on_hand</text>
+      <text x="248" y="291" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">in_transit</text>
+      <text x="248" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">allocated</text>
+      <text x="248" y="325" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">quality_hold</text>
+      <text x="248" y="342" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">snapshot_date</text>
+
+      <!-- purchase_order -->
+      <rect x="452" y="180" width="196" height="200" rx="10" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="452" y="180" width="196" height="40" rx="10" fill="#f2f4f7"/>
+      <rect x="452" y="196" width="196" height="24" fill="#f2f4f7"/>
+      <text x="462" y="197" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#101828">t_kadss_purchase_order</text>
+      <text x="462" y="211" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#667085">采购订单</text>
+      <text x="462" y="240" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">po_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan></text>
+      <text x="462" y="257" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="462" y="274" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">qty</text>
+      <text x="462" y="291" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">promised_lt</text>
+      <text x="462" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">actual_lt</text>
+      <text x="462" y="325" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">status</text>
+
+      <!-- demand_order -->
+      <rect x="666" y="180" width="196" height="200" rx="10" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="666" y="180" width="196" height="40" rx="10" fill="#f2f4f7"/>
+      <rect x="666" y="196" width="196" height="24" fill="#f2f4f7"/>
+      <text x="676" y="197" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#101828">t_kadss_demand_order</text>
+      <text x="676" y="211" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#667085">需求订单</text>
+      <text x="676" y="240" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">order_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan></text>
+      <text x="676" y="257" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="676" y="274" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">order_type</text>
+      <text x="676" y="291" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">qty</text>
+      <text x="676" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">required_date</text>
+      <text x="676" y="325" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">status</text>
+
+      <!-- demand_history -->
+      <rect x="880" y="180" width="196" height="200" rx="10" fill="#ffffff" stroke="#d0d5dd"/>
+      <rect x="880" y="180" width="196" height="40" rx="10" fill="#f2f4f7"/>
+      <rect x="880" y="196" width="196" height="24" fill="#f2f4f7"/>
+      <text x="890" y="197" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#101828">t_kadss_demand_history</text>
+      <text x="890" y="211" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" fill="#667085">历史需求</text>
+      <text x="890" y="240" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">history_id <tspan fill="#0b6b5b" font-weight="600">PK</tspan></text>
+      <text x="890" y="257" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">material_id <tspan fill="#b54708" font-weight="600">FK</tspan></text>
+      <text x="890" y="274" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">demand_date</text>
+      <text x="890" y="291" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#344054">demand_qty</text>
+    </svg>
+
+    <div class="erd-note">PK 主键 · FK 外键 · 连线为物料 → 引用它的表（1 : N）。BOM 通过 parent_material_id / child_material_id 两个外键引用物料；其余 4 张表均以 material_id 关联。结果表字段与粒度见下表。</div>
+
+    <div class="table-shell">
+      <div class="table-title">BASE TABLES · 6</div>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>表</th><th>粒度 / 主键</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>t_kadss_material</code>（物料主数据）</td><td>material_id</td><td>物料主数据：供应类型、四类提前期、单价</td></tr>
+            <tr><td><code>t_kadss_bom</code>（物料清单）</td><td>bom_id；业务唯一 parent + child + version</td><td>只存直接父子关系，层级在展开时递归计算</td></tr>
+            <tr><td><code>t_kadss_inventory</code>（库存快照）</td><td>inventory_id；唯一 material + snapshot_date</td><td>现有、在途、已分配、质检锁定</td></tr>
+            <tr><td><code>t_kadss_purchase_order</code>（采购订单）</td><td>po_id</td><td>采购件历史实际交期偏差来源</td></tr>
+            <tr><td><code>t_kadss_demand_order</code>（需求订单）</td><td>order_id</td><td>五类需求订单与 required_date</td></tr>
+            <tr><td><code>t_kadss_demand_history</code>（历史需求）</td><td>history_id；唯一 material + demand_date</td><td>日粒度历史需求</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="erd-note">结果表依赖：abc_xyz + safety_stock → kitting → probability；safety_stock + history → cost。全部结果行携带同一 run_id。</div>
+
+    <div class="table-shell">
+      <div class="table-title">RESULT TABLES · 5</div>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>表</th><th>主键</th><th>看板用途</th></tr></thead>
+          <tbody>
+            <tr><td><code>t_kadss_abc_xyz_result</code>（分层结果）</td><td>run_id + material_id</td><td>物料分层矩阵与明细</td></tr>
+            <tr><td><code>t_kadss_safety_stock_result</code>（安全库存结果）</td><td>run_id + material_id + service_level</td><td>安全库存与建议补货量</td></tr>
+            <tr><td><code>t_kadss_kitting_result</code>（齐套结果）</td><td>run_id + order_id + material_id + service_level + strategy</td><td>齐套明细与缺口</td></tr>
+            <tr><td><code>t_kadss_kitting_probability</code>（齐套概率）</td><td>run_id + order_id</td><td>齐套概率与风险等级</td></tr>
+            <tr><td><code>t_kadss_cost_simulation_result</code>（成本仿真）</td><td>run_id + material_id + strategy + service_level</td><td>固定 vs 动态策略成本</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="capability">
+    <div class="sec-head"><span class="sec-num">06</span><h2>能力映射</h2></div>
+    <p class="sec-sub">PRD 的每条能力落到唯一模块，并由此处的约束治理；这是后续一致性审计的清单。</p>
+
+    <div class="table-shell">
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>能力</th><th>落点</th><th>治理约束</th></tr></thead>
+          <tbody>
+            <tr><td>US-1 模拟数据</td><td><code>generator / validation / store / build_dataset</code></td><td>AD-2、AD-4、AD-8</td></tr>
+            <tr><td>US-2 ABC-XYZ</td><td><code>abc_xyz</code></td><td>AD-3、AD-6</td></tr>
+            <tr><td>US-3 动态安全库存</td><td><code>safety_stock</code></td><td>AD-3、AD-4、AD-6、AD-8</td></tr>
+            <tr><td>US-4 BOM 齐套</td><td><code>kitting</code></td><td>AD-3、AD-7、AD-9</td></tr>
+            <tr><td>US-5 齐套概率</td><td><code>probability</code></td><td>AD-3、AD-6、AD-8</td></tr>
+            <tr><td>US-6 成本仿真</td><td><code>cost / build_results._gap_rates / labels</code></td><td>AD-3、AD-5、AD-7、AD-8</td></tr>
+            <tr><td>US-7 看板</td><td><code>app.py</code></td><td>AD-1、AD-2、AD-4、AD-5、AD-9</td></tr>
+            <tr><td>KPI-1 / KPI-2 可复现、可核对</td><td>seed 派生、单点口径、<code>run_id</code></td><td>AD-2、AD-3、AD-8</td></tr>
+            <tr><td>KPI-3 性能</td><td>场景预计算 + 内存重算 + 缓存</td><td>AD-9</td></tr>
+            <tr><td>KPI-5 可访问性</td><td>预计算产物 + <code>requirements.txt</code></td><td>AD-2、部署约束</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="gaps">
+    <div class="sec-head"><span class="sec-num">07</span><h2>落地差距</h2></div>
+    <p class="sec-sub">架构已定，但以下现状与目标不一致；按优先级处理后再进入看板开发。</p>
+
+    <div class="table-shell">
+      <div class="tbl-scroll">
+        <table class="gap-table">
+          <thead><tr><th>项</th><th>现状</th><th>类型</th></tr></thead>
+          <tbody>
+            <tr><td>看板数据源</td><td><code>app.py</code> 用 seed 现场生成假数据，自算缺口、概率与成本</td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>场景参数</td><td><code>app.py</code> 内置 <code>SCENARIOS</code> 与 <code>Z_BY_LEVEL</code>，<code>lt_sigma</code> 为 1.5 / 2.5 / 5.0，与配置的 1.5 / 1.5 / 2.5 不一致</td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>看板参数</td><td><code>ss_scale</code>、惩罚系数 2–5 倍、模拟次数 100–1000 硬编码在 <code>app.py</code></td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>公共口径模块缺失</td><td>无 <code>availability.py</code> / <code>metrics.py</code>，可用量、订单状态、缺料率在 <code>safety_stock</code>、<code>cost</code>、<code>probability</code>、<code>kitting.order_status</code> 重复</td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>run_id 摘要稳定性</td><td><code>load_base_tables</code> 无 <code>ORDER BY</code>，基础表行序变化会改变摘要与 <code>run_id</code></td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>依赖锁定</td><td>无 <code>requirements.txt</code>；补齐时必须用 <code>pip freeze</code> 实测锁定，不手填</td><td><span class="tag-chip add">待补齐</span></td></tr>
+            <tr><td>预计算库入库</td><td><code>.gitignore</code> 忽略 <code>data/**/kadss.db</code>，云上部署无数据可用</td><td><span class="tag-chip dec">已决策</span></td></tr>
+            <tr><td>自动化测试</td><td>无 <code>tests/</code>，PRD 风险表要求的多层展开、共享料、替代料、循环 BOM 用例未落地</td><td><span class="tag-chip add">待补齐</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="boundary">
+    <div class="sec-head"><span class="sec-num">08</span><h2>边界与决策</h2></div>
+    <p class="sec-sub">三条已拍板的决策，以及明确不做的边界。当前无未决阻塞项。</p>
+
+    <div class="q-grid">
+      <div class="q-card">
+        <div class="qid">TD-1 · 已确认</div>
+        <h4>随仓库提交预计算 SQLite</h4>
+        <p>三库合计约 9.7 MB，提交后冷启动即读，目标 ≤ 30 秒由此满足。同步移除 <code>.gitignore</code> 对 <code>data/**/kadss.db</code> 的忽略，并在读库前自检 <code>run_id</code> 与配置一致，防止提交过期快照。</p>
+      </div>
+      <div class="q-card">
+        <div class="qid">TD-2 · 已确认</div>
+        <h4>合并公共口径模块</h4>
+        <p>新建 <code>kadss/availability.py</code> 与 <code>kadss/metrics.py</code>，一次性收口可用量、订单状态与物料/订单缺料率；作为看板接入的硬前置，同时完成缺料率的 API 化。</p>
+      </div>
+      <div class="q-card">
+        <div class="qid">TD-3 · 已确认</div>
+        <h4>五维缓存键 + 分层单独缓存</h4>
+        <p>重算键固定为 <code>run_id + 可用量口径 + 服务水平 + 惩罚系数 + 模拟次数</code>，顺序固定；ABC-XYZ 分层只随场景库变化，单独以 <code>run_id</code> 缓存。先实测，未达 3 秒阈值前不做口径矩阵预计算。</p>
+      </div>
+    </div>
+
+    <div class="deferred">
+      <h4>Deferred · 本层不决定的事</h4>
+      <ul>
+        <li><b>自动化测试与 CI</b>：口径已单点收敛，补测试不改架构。</li>
+        <li><b>KPI-2 核对产物</b>：20 单手工/Excel 核对暂无导出脚本，补 audit 导出与测试夹具即可。</li>
+        <li><b>5,000 物料 / 10 万行需求容量优化</b>：先按 KPI-3 实测，再决定分块或向量化。</li>
+        <li><b>虚拟件展开与 BOM 多版本选择</b>：字段已预留，MVP 固定单版本；实现时新增 AD。</li>
+        <li><b>需求预测、APS、多工厂多仓、权限、推送、自然语言问答</b>：PRD 明确为 v2.0 候选。</li>
+        <li><b>敏感性分析的产品化呈现</b>：当前按三档服务水平输出，交互形态未定。</li>
+        <li><b>打包与发布形态</b>：保持仓库内可导入包，不做 PyPI 发布。</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-grid">
+    <div>
+      <h5>口径声明</h5>
+      <p>策略对比中的缺料率按“预留安全库存后的可用量”计算；缺料成本按实际缺货损失计算。服务水平提升会降低缺货成本，但提高库存占用与可用量约束，两个指标方向可能相反，这是权衡，不是矛盾。</p>
+      <p style="margin-top:10px;color:var(--muted);font-size:12px;">看板与报告必须使用完整指标名：物料缺料率（按行数）、订单缺料率（按订单数），不得只写“缺料率”。</p>
+    </div>
+    <div>
+      <h5>来源</h5>
+      <div class="foot-links">
+        <a href="./architecture-kadss.md">架构脊柱 · architecture-kadss.md</a>
+        <a href="../../PRD%20MVP-%E4%BE%9B%E5%BA%94%E9%93%BE%E9%BD%90%E5%A5%97%E9%A2%84%E8%AD%A6%E4%B8%8E%E5%8A%A8%E6%80%81%E5%AE%89%E5%85%A8%E5%BA%93%E5%AD%98%E4%BC%98%E5%8C%96%E7%B3%BB%E7%BB%9F.md">PRD v1.1</a>
+        <span style="color:var(--muted);font-size:12px;">db/schema.sql · kadss/ · config/kadss.json · app.py</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -132,6 +132,10 @@ def build_summary(db_path: str | Path, cfg: dict[str, Any], scenario: str) -> st
         ("物料数", cfg["scale"]["materials"]),
         ("需求订单数", cfg["scale"]["demand_orders"]),
         ("历史需求天数", cfg["scale"]["history_days"]),
+        (
+            "短期历史物料占比 / 天数",
+            f"{cfg['scale']['limited_history_share']} / {cfg['scale']['limited_history_days']}",
+        ),
         ("需求波动系数", scen["demand_volatility"]),
         ("交期延误均值(天)", scen["lt_delay_days"]),
         ("交期延误标准差(天)", scen["lt_sigma"]),

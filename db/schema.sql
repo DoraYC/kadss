@@ -127,16 +127,19 @@ CREATE INDEX idx_kadss_demand_history_date ON t_kadss_demand_history (demand_dat
 -- ---------------------------------------------------------------
 
 -- ABC-XYZ 分层结果
+-- abc_class / xyz_class / combined_class 允许为空：样本不足的物料不强行分层（PRD US-2）
 CREATE TABLE t_kadss_abc_xyz_result (
     run_id             TEXT NOT NULL,
     material_id        TEXT NOT NULL REFERENCES t_kadss_material (material_id),
-    abc_class          TEXT NOT NULL CHECK (abc_class IN ('A', 'B', 'C')),
-    xyz_class          TEXT NOT NULL CHECK (xyz_class IN ('X', 'Y', 'Z')),
-    combined_class     TEXT NOT NULL,
+    abc_class          TEXT CHECK (abc_class IS NULL OR abc_class IN ('A', 'B', 'C')),
+    xyz_class          TEXT CHECK (xyz_class IS NULL OR xyz_class IN ('X', 'Y', 'Z')),
+    combined_class     TEXT,
     cv                 REAL NOT NULL DEFAULT 0 CHECK (cv >= 0),
     amount_share       REAL NOT NULL DEFAULT 0 CHECK (amount_share >= 0 AND amount_share <= 1),
     confidence_level   TEXT NOT NULL DEFAULT 'high'
                        CHECK (confidence_level IN ('high', 'low')),
+    data_status        TEXT NOT NULL DEFAULT 'ok'
+                       CHECK (data_status IN ('ok', 'insufficient_data')),
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (run_id, material_id)
 );
@@ -170,11 +173,14 @@ CREATE TABLE t_kadss_safety_stock_result (
 );
 
 -- BOM 齐套检查结果（订单 × 物料）
+-- strategy：baseline 为默认口径；fixed / dynamic 为成本仿真所需的两种安全库存策略口径
 CREATE TABLE t_kadss_kitting_result (
     run_id            TEXT NOT NULL,
     order_id          TEXT NOT NULL REFERENCES t_kadss_demand_order (order_id),
     material_id       TEXT NOT NULL REFERENCES t_kadss_material (material_id),
     service_level     INTEGER NOT NULL CHECK (service_level BETWEEN 80 AND 99),
+    strategy          TEXT NOT NULL DEFAULT 'baseline'
+                      CHECK (strategy IN ('baseline', 'fixed', 'dynamic')),
     req_qty           REAL NOT NULL CHECK (req_qty >= 0),
     on_hand           REAL NOT NULL DEFAULT 0 CHECK (on_hand >= 0),
     in_transit        REAL NOT NULL DEFAULT 0 CHECK (in_transit >= 0),
@@ -185,19 +191,22 @@ CREATE TABLE t_kadss_kitting_result (
     gap_qty           REAL NOT NULL DEFAULT 0 CHECK (gap_qty >= 0),
     gap_amount        REAL NOT NULL DEFAULT 0 CHECK (gap_amount >= 0),
     available_scope   TEXT NOT NULL DEFAULT 'on_hand+in_transit-allocated',
+    has_substitute    INTEGER NOT NULL DEFAULT 0 CHECK (has_substitute IN (0, 1)),
     confidence_level  TEXT NOT NULL DEFAULT 'high'
                       CHECK (confidence_level IN ('high', 'low')),
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (run_id, order_id, material_id, service_level)
+    PRIMARY KEY (run_id, order_id, material_id, service_level, strategy)
 );
 
-CREATE INDEX idx_kadss_kitting_order ON t_kadss_kitting_result (run_id, order_id);
+CREATE INDEX idx_kadss_kitting_order ON t_kadss_kitting_result (run_id, strategy, order_id);
 CREATE INDEX idx_kadss_kitting_material ON t_kadss_kitting_result (run_id, material_id);
 
 -- 订单齐套概率结果
 CREATE TABLE t_kadss_kitting_probability (
     run_id                  TEXT NOT NULL,
     order_id                TEXT NOT NULL REFERENCES t_kadss_demand_order (order_id),
+    kitting_status          TEXT NOT NULL DEFAULT '不齐套'
+                            CHECK (kitting_status IN ('齐套', '不齐套', '数据不足')),
     on_time_probability     REAL CHECK (on_time_probability IS NULL OR (on_time_probability >= 0 AND on_time_probability <= 1)),
     risk_level              TEXT NOT NULL
                             CHECK (risk_level IN ('低风险', '中风险', '高风险', '数据不足')),
@@ -219,6 +228,7 @@ CREATE TABLE t_kadss_cost_simulation_result (
     avg_inventory_value    REAL NOT NULL DEFAULT 0 CHECK (avg_inventory_value >= 0),
     holding_cost           REAL NOT NULL DEFAULT 0 CHECK (holding_cost >= 0),
     shortage_qty           REAL NOT NULL DEFAULT 0 CHECK (shortage_qty >= 0),
+    shortage_days          INTEGER NOT NULL DEFAULT 0 CHECK (shortage_days >= 0),
     shortage_cost          REAL NOT NULL DEFAULT 0 CHECK (shortage_cost >= 0),
     created_at             TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (run_id, material_id, strategy, service_level)

@@ -38,14 +38,55 @@ DEFAULTS: dict[str, Any] = {
             "lt_sigma": 2.5,
         },
     },
-    "scale": {"materials": 200, "demand_orders": 50, "history_days": 90},
-    "bom": {"min_children": 2, "max_children": 6, "substitute_rate": 0.05},
+    "scale": {
+        "materials": 200,
+        "demand_orders": 50,
+        "history_days": 90,
+        "limited_history_share": 0.03,
+        "limited_history_days": 10,
+    },
+    "bom": {"min_children": 2, "max_children": 6, "substitute_rate": 0.15},
     "noise": {"demand_zero_rate": 0.05, "demand_spike_rate": 0.01, "demand_spike_factor": 3.0},
     "supply": {
         "supplier_pool_size": 30,
         "po_history_days": 180,
         "received_po_per_material": [4, 10],
         "open_po_per_material": [0, 2],
+    },
+    "abc_xyz": {
+        "abc_a_share": 0.70,
+        "abc_b_share": 0.90,
+        "xyz_x_cv": 0.50,
+        "xyz_y_cv": 1.00,
+        "min_periods": 3,
+    },
+    "safety_stock": {
+        "service_levels": [90, 95, 99],
+        "default_service_level": 95,
+        "fixed_coverage_days": 7,
+        "min_periods": 3,
+        "z_values": {"90": 1.28, "95": 1.65, "99": 2.33},
+    },
+    "kitting": {
+        "max_depth": 10,
+        "available_scope": {
+            "in_transit": True,
+            "allocated": True,
+            "quality_hold": False,
+            "safety_stock": False,
+        },
+    },
+    "probability": {
+        "simulation_count": 100,
+        "risk_low": 0.90,
+        "risk_medium": 0.70,
+        "seed": 20261116,
+    },
+    "cost": {
+        "holding_rate": 0.20,
+        "penalty_factor": 3.0,
+        "simulation_days": 90,
+        "seed": 20261116,
     },
 }
 
