@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+
+# macOS
+.DS_Store
+
+# SQLite 运行时文件（数据库可由 python -m kadss.build_dataset 重建；CSV 与摘要已入库）
+*.db-journal
+data/**/kadss.db
