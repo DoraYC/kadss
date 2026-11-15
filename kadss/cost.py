@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from kadss.availability import SIMULATION_SCOPE, available_by_material
+
 
 def _simulate(
     demand: np.ndarray,
@@ -72,7 +74,7 @@ def simulate_cost(
     seed = int(params["seed"])
 
     price = materials.set_index("material_id")["unit_price"]
-    stock = inventory.set_index("material_id")
+    initial_stock_by_material = available_by_material(inventory, SIMULATION_SCOPE)
     history_by_material = {
         str(material_id): group["demand_qty"].to_numpy(dtype=float)
         for material_id, group in history.groupby("material_id")
@@ -92,9 +94,7 @@ def simulate_cost(
         demand = rng.choice(historical, size=simulation_days, replace=True)
         lead_time_days = max(1, int(round(float(base_level.loc[material_id, "lt_avg"]))))
         average_daily = float(base_level.loc[material_id, "avg_demand"])
-        initial_stock = float(stock.loc[material_id, "on_hand"]) + float(
-            stock.loc[material_id, "in_transit"]
-        )
+        initial_stock = float(initial_stock_by_material.loc[material_id])
         fixed_point = float(base_level.loc[material_id, "fixed_ss"])
         unit_price = float(price.get(material_id, 0.0))
 

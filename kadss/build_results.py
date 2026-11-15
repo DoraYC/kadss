@@ -21,21 +21,8 @@ from kadss.labels import (
     STRATEGY_SCOPE_NOTE,
     TRADEOFF_NOTE,
 )
+from kadss.metrics import gap_rates
 from kadss.pipeline import run_scenario
-
-
-def _gap_rates(kitting: pd.DataFrame) -> tuple[float, float]:
-    """物料缺料率（按行数）与订单缺料率（按订单数）。"""
-    rows = len(kitting)
-    gap_rows = int((kitting["gap_qty"] > 0).sum())
-    orders = kitting["order_id"].nunique()
-    gap_orders = int(
-        kitting.groupby("order_id")["gap_qty"].apply(lambda values: (values > 0).any()).sum()
-    )
-    return (
-        gap_rows / rows if rows else 0.0,
-        gap_orders / orders if orders else 0.0,
-    )
 
 
 def build_report(frames: dict[str, pd.DataFrame], cfg: dict[str, Any], run_id: str) -> str:
@@ -74,7 +61,7 @@ def build_report(frames: dict[str, pd.DataFrame], cfg: dict[str, Any], run_id: s
     baseline = kitting[
         (kitting["strategy"] == "baseline") & (kitting["service_level"] == default_level)
     ]
-    row_rate, order_rate = _gap_rates(baseline)
+    row_rate, order_rate = gap_rates(baseline)
     lines.append(
         f"默认口径（{DEFAULT_SCOPE_NOTE}）：{MATERIAL_SHORTAGE_RATE}={row_rate:.1%} "
         f"{ORDER_SHORTAGE_RATE}={order_rate:.1%}"
@@ -92,7 +79,7 @@ def build_report(frames: dict[str, pd.DataFrame], cfg: dict[str, Any], run_id: s
             subset = kitting[
                 (kitting["strategy"] == strategy) & (kitting["service_level"] == level)
             ]
-            strategy_rates[strategy] = _gap_rates(subset)
+            strategy_rates[strategy] = gap_rates(subset)
         fixed = totals.loc[(level, "fixed")]
         dynamic = totals.loc[(level, "dynamic")]
         lines.append(

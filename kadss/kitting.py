@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from kadss.availability import available_quantity
+
 
 def build_children_map(bom: pd.DataFrame) -> dict[str, list[tuple[str, float]]]:
     primary = bom[bom["is_substitute"] == 0]
@@ -58,19 +60,6 @@ def describe_scope(scope: dict[str, bool], service_level: int, ss_label: str) ->
     if scope["safety_stock"]:
         text += f"-safety_stock({service_level}%,{ss_label})"
     return text
-
-
-def _available(
-    stock_row: pd.Series, scope: dict[str, bool], safety_stock_deduct: float
-) -> float:
-    quantity = float(stock_row["on_hand"])
-    if scope["in_transit"]:
-        quantity += float(stock_row["in_transit"])
-    if scope["allocated"]:
-        quantity -= float(stock_row["allocated"])
-    if scope["quality_hold"]:
-        quantity -= float(stock_row["quality_hold"])
-    return quantity - safety_stock_deduct
 
 
 def compute_kitting(
@@ -132,7 +121,7 @@ def compute_kitting(
                     if deduct_by_material is None
                     else float(deduct_by_material.get(material_id, 0.0))
                 )
-                remaining[material_id] = _available(
+                remaining[material_id] = available_quantity(
                     stock.loc[material_id], scope, deduct
                 )
             available = remaining[material_id]
@@ -171,30 +160,3 @@ def compute_kitting(
     return frame.sort_values(
         ["order_id", "material_id", "strategy", "service_level"]
     ).reset_index(drop=True)
-
-
-def order_status(kitting: pd.DataFrame) -> pd.DataFrame:
-    """订单级齐套结论：存在低置信物料即「数据不足」，否则按是否有缺口判断。"""
-    grouped = kitting.groupby("order_id", sort=True)
-    records: list[dict[str, Any]] = []
-    for order_id, group in grouped:
-        has_low = (group["confidence_level"] == "low").any()
-        total_gap = float(group["gap_amount"].sum())
-        gap_rows = int((group["gap_qty"] > 0).sum())
-        if has_low:
-            status = "数据不足"
-        elif total_gap > 0:
-            status = "不齐套"
-        else:
-            status = "齐套"
-        records.append(
-            {
-                "order_id": str(order_id),
-                "kitting_status": status,
-                "gap_rows": gap_rows,
-                "gap_amount": total_gap,
-                "_row_count": int(len(group)),
-                "_gap_row_count": gap_rows,
-            }
-        )
-    return pd.DataFrame(records)

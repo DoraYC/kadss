@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from kadss.metrics import kitting_status
+
 
 def _risk_level(probability: float, cfg: dict[str, Any]) -> str:
     if probability >= float(cfg["probability"]["risk_low"]):
@@ -55,10 +57,10 @@ def compute_probability(
         gap_amount = float(group["gap_amount"].sum())
         gap_count = int(len(gap_rows))
 
+        status = kitting_status(has_low, gap_amount)
         if has_low:
-            status, probability, risk = "数据不足", None, "数据不足"
+            probability, risk = None, "数据不足"
         else:
-            status = "不齐套" if gap_amount > 0 else "齐套"
             if gap_rows.empty:
                 probability = 1.0
             else:

@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from kadss.availability import BASE_SCOPE, available_by_material
+
 
 def _daily_demand_stats(history: pd.DataFrame) -> pd.DataFrame:
     stats = history.groupby("material_id")["demand_qty"].agg(
@@ -81,12 +83,8 @@ def compute_safety_stock(
     frame["sigma_lt"] = np.where(use_history, frame["sigma_lt_history"], 0.0)
     frame["lt_source"] = np.where(use_history, "history", "master_data")
 
-    stock = inventory.set_index("material_id")
-    frame["available_qty"] = (
-        frame["material_id"].map(stock["on_hand"]).fillna(0.0)
-        + frame["material_id"].map(stock["in_transit"]).fillna(0.0)
-        - frame["material_id"].map(stock["allocated"]).fillna(0.0)
-    )
+    available = available_by_material(inventory, BASE_SCOPE)
+    frame["available_qty"] = frame["material_id"].map(available).fillna(0.0)
 
     frame["fixed_ss"] = frame["avg_demand"] * float(params["fixed_coverage_days"])
     frame["confidence_level"] = np.where(
