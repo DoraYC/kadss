@@ -15,6 +15,33 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data"
 DEFAULTS: dict[str, Any] = {
     "seed": 42,
     "base_date": "2026-11-16",
+    "profile": "small",
+    "profiles": {
+        "small": {
+            "label": "标准（200 物料）",
+            "output_root": "data",
+            "scale": {
+                "materials": 200,
+                "demand_orders": 50,
+                "history_days": 90,
+                "limited_history_share": 0.03,
+                "limited_history_days": 10,
+            },
+            "bom": {"min_children": 2, "max_children": 6, "substitute_rate": 0.15},
+        },
+        "large": {
+            "label": "大规模（2,000 物料）",
+            "output_root": "data_large",
+            "scale": {
+                "materials": 2000,
+                "demand_orders": 300,
+                "history_days": 180,
+                "limited_history_share": 0.03,
+                "limited_history_days": 10,
+            },
+            "bom": {"min_children": 2, "max_children": 6, "substitute_rate": 0.15},
+        },
+    },
     "scenarios": {
         "normal": {
             "label": "正常",
@@ -38,15 +65,12 @@ DEFAULTS: dict[str, Any] = {
             "lt_sigma": 2.5,
         },
     },
-    "scale": {
-        "materials": 200,
-        "demand_orders": 50,
-        "history_days": 90,
-        "limited_history_share": 0.03,
-        "limited_history_days": 10,
+    "noise": {
+        "demand_zero_rate": 0.05,
+        "demand_spike_rate": 0.01,
+        "demand_spike_factor": 3.0,
+        "volatility_mix": {"x": 0.1, "y": 0.4, "z": 0.5},
     },
-    "bom": {"min_children": 2, "max_children": 6, "substitute_rate": 0.15},
-    "noise": {"demand_zero_rate": 0.05, "demand_spike_rate": 0.01, "demand_spike_factor": 3.0},
     "supply": {
         "supplier_pool_size": 30,
         "po_history_days": 180,
@@ -56,8 +80,8 @@ DEFAULTS: dict[str, Any] = {
     "abc_xyz": {
         "abc_a_share": 0.70,
         "abc_b_share": 0.90,
-        "xyz_x_cv": 0.50,
-        "xyz_y_cv": 1.00,
+        "xyz_x_cv": 0.10,
+        "xyz_y_cv": 0.25,
         "min_periods": 3,
     },
     "safety_stock": {
@@ -102,10 +126,32 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
-def load_config(path: str | Path | None = None) -> dict[str, Any]:
-    """读取配置文件；文件不存在时使用默认值。"""
+def _resolve_profile(cfg: dict[str, Any], profile: str | None) -> dict[str, Any]:
+    """把选定规模的 scale / bom / output_root 展开为可直接使用的配置。"""
+    selected = str(profile or cfg.get("profile", "small"))
+    profiles = cfg.get("profiles", {})
+    if selected not in profiles:
+        raise ValueError(
+            f"未知数据规模 {selected!r}，可选：{', '.join(sorted(profiles))}"
+        )
+    resolved = _deep_merge(cfg, profiles[selected])
+    resolved["profile"] = selected
+    resolved["scale"] = deepcopy(profiles[selected]["scale"])
+    resolved["bom"] = deepcopy(profiles[selected]["bom"])
+    output_root = Path(str(profiles[selected]["output_root"]))
+    if not output_root.is_absolute():
+        output_root = PROJECT_ROOT / output_root
+    resolved["output_root"] = output_root
+    return resolved
+
+
+def load_config(
+    path: str | Path | None = None, profile: str | None = None
+) -> dict[str, Any]:
+    """读取配置文件；文件不存在时使用默认值，profile 可覆盖当前数据规模。"""
     config_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
     if not config_path.exists():
-        return deepcopy(DEFAULTS)
+        return _resolve_profile(deepcopy(DEFAULTS), profile)
     with config_path.open(encoding="utf-8") as handle:
-        return _deep_merge(DEFAULTS, json.load(handle))
+        merged = _deep_merge(DEFAULTS, json.load(handle))
+    return _resolve_profile(merged, profile)

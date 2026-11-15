@@ -11,3 +11,6 @@ __pycache__/
 
 # SQLite 运行时文件（预计算库随仓库提交，见 TD-1）
 *.db-journal
+
+# 按需生成的大规模验收数据（见 TD-4），不入库
+data_large/

@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from kadss.config import DEFAULT_OUTPUT_DIR, load_config
+from kadss.config import load_config
 from kadss.generator import generate_dataset
 from kadss.store import build_summary, export_csv, output_paths, write_dataset
 from kadss.validation import DataValidationError, assert_valid
@@ -39,18 +39,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="场景名，或 all 生成全部场景（默认 normal）",
     )
     parser.add_argument("--seed", type=int, help="覆盖配置文件中的主种子")
+    parser.add_argument("--profile", help="数据规模，取自 profiles（如 small / large）")
     parser.add_argument("--config", type=Path, help="配置文件路径，默认 config/kadss.json")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIR, help="输出根目录")
+    parser.add_argument("--output", type=Path, help="输出根目录，默认取 profile 的 output_root")
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, profile=args.profile)
     if args.seed is not None:
         cfg["seed"] = args.seed
+    output_root = args.output or Path(cfg["output_root"])
 
     scenarios = list(cfg["scenarios"]) if args.scenario == "all" else [args.scenario]
     try:
         for scenario in scenarios:
-            paths, csv_count = build_scenario(scenario, cfg, args.output)
+            paths, csv_count = build_scenario(scenario, cfg, output_root)
             print(
                 f"[{scenario}] 数据库 {paths['db']} | "
                 f"CSV {csv_count} 个 | 摘要 {paths['summary']}"

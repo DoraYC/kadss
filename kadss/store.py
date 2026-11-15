@@ -145,6 +145,13 @@ def build_summary(db_path: str | Path, cfg: dict[str, Any], scenario: str) -> st
             f"{cfg['noise']['demand_spike_rate']} / {cfg['noise']['demand_spike_factor']}",
         ),
         (
+            "波动类型占比 X/Y/Z",
+            " / ".join(
+                f"{float(cfg['noise']['volatility_mix'][key]):.0%}"
+                for key in ("x", "y", "z")
+            ),
+        ),
+        (
             "已收货采购单/物料",
             "-".join(str(value) for value in cfg["supply"]["received_po_per_material"]),
         ),

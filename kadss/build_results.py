@@ -13,7 +13,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 
-from kadss.config import DEFAULT_OUTPUT_DIR, load_config
+from kadss.config import load_config
 from kadss.labels import (
     DEFAULT_SCOPE_NOTE,
     MATERIAL_SHORTAGE_RATE,
@@ -96,15 +96,17 @@ def build_report(frames: dict[str, pd.DataFrame], cfg: dict[str, Any], run_id: s
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="计算 KADSS 结果表并写入 SQLite")
     parser.add_argument("--scenario", default="normal", help="场景名，或 all 计算全部场景")
+    parser.add_argument("--profile", help="数据规模，取自 profiles（如 small / large）")
     parser.add_argument("--config", type=Path, help="配置文件路径，默认 config/kadss.json")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIR, help="数据根目录")
+    parser.add_argument("--output", type=Path, help="数据根目录，默认取 profile 的 output_root")
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, profile=args.profile)
+    output_root = args.output or Path(cfg["output_root"])
     scenarios = list(cfg["scenarios"]) if args.scenario == "all" else [args.scenario]
     try:
         for scenario in scenarios:
-            frames, run_id = run_scenario(scenario, cfg, args.output)
+            frames, run_id = run_scenario(scenario, cfg, output_root)
             print(f"=== {scenario} ===")
             print(build_report(frames, cfg, run_id))
     except ValueError as error:

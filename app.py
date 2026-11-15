@@ -18,7 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from kadss.config import DEFAULT_OUTPUT_DIR, load_config
+from kadss.config import load_config
 from kadss.cost import simulate_cost
 from kadss.kitting import compute_kitting
 from kadss.labels import (
@@ -46,12 +46,49 @@ CONFIDENCE_LABELS = {"high": "高", "low": "低"}
 LT_SOURCE_LABELS = {"history": "历史采购交期", "master_data": "主数据标准提前期"}
 DATA_STATUS_LABELS = {"ok": "正常", "insufficient_data": "样本不足"}
 
+STYLE_RED = "background-color: #fde2e1; color: #8a1c1c; font-weight: 600"
+STYLE_YELLOW = "background-color: #fff3cd; color: #7a5b00; font-weight: 600"
+STYLE_GREEN = "background-color: #d9f2e3; color: #145c33; font-weight: 600"
+LAYER_COLUMN_STYLES = {
+    "ABC": {"A": STYLE_RED, "B": STYLE_YELLOW, "C": STYLE_GREEN},
+    "XYZ": {"X": STYLE_GREEN, "Y": STYLE_YELLOW, "Z": STYLE_RED},
+    "组合": {
+        "AY": STYLE_RED,
+        "AZ": STYLE_RED,
+        "BZ": STYLE_RED,
+        "AX": STYLE_YELLOW,
+        "BY": STYLE_YELLOW,
+        "CZ": STYLE_YELLOW,
+        "BX": STYLE_GREEN,
+        "CX": STYLE_GREEN,
+        "CY": STYLE_GREEN,
+    },
+    "数据置信度": {"高": STYLE_GREEN, "低": STYLE_RED},
+    "数据状态": {"正常": STYLE_GREEN, "样本不足": STYLE_YELLOW},
+}
+
+
+def scene_stamp(profile: str, scenario: str) -> str:
+    """场景库文件指纹：重算并覆写库后变化，用于让看板缓存自动失效。"""
+    cfg = load_config(profile=profile)
+    db = output_paths(scenario, cfg["output_root"])["db"]
+    if not db.exists():
+        return "missing"
+    stat = db.stat()
+    return f"{stat.st_mtime_ns}-{stat.st_size}"
+
 
 @st.cache_data(show_spinner="加载场景结果…")
-def load_scene(scenario: str) -> dict[str, Any]:
-    """读取基础表与结果表，并在读库前完成 run_id 自检。"""
-    cfg = load_config()
-    paths = output_paths(scenario, DEFAULT_OUTPUT_DIR)
+def load_scene(profile: str, scenario: str, stamp: str) -> dict[str, Any]:
+    """读取基础表与结果表，并在读库前完成 run_id 自检。stamp 仅参与缓存键。"""
+    cfg = load_config(profile=profile)
+    paths = output_paths(scenario, cfg["output_root"])
+    if not paths["db"].exists():
+        raise FileNotFoundError(
+            f"场景库不存在：{paths['db']}。请先运行 python -m kadss.build_dataset "
+            f"--profile {profile} --scenario {scenario} 与 python -m kadss.build_results "
+            f"--profile {profile} --scenario {scenario}"
+        )
     base = load_base_tables(paths["db"])
     run_id = verify_results(paths["db"], scenario, cfg, data=base)
     results = load_results(paths["db"], run_id)
@@ -59,9 +96,11 @@ def load_scene(scenario: str) -> dict[str, Any]:
 
 
 @st.cache_data(show_spinner="按当前口径重算齐套结果…")
-def kitting_for_scope(scenario: str, scope_key: tuple[bool, ...]) -> pd.DataFrame:
+def kitting_for_scope(
+    profile: str, scenario: str, scope_key: tuple[bool, ...], stamp: str
+) -> pd.DataFrame:
     """默认口径直接读落盘 baseline；其他口径按同一计算函数在内存重算。"""
-    scene = load_scene(scenario)
+    scene = load_scene(profile, scenario, stamp)
     cfg = scene["cfg"]
     results = scene["results"]
     run_id = scene["run_id"]
@@ -100,8 +139,10 @@ def kitting_for_scope(scenario: str, scope_key: tuple[bool, ...]) -> pd.DataFram
 
 
 @st.cache_data(show_spinner="按惩罚系数重算成本…")
-def cost_for_penalty(scenario: str, penalty: float) -> pd.DataFrame:
-    scene = load_scene(scenario)
+def cost_for_penalty(
+    profile: str, scenario: str, penalty: float, stamp: str
+) -> pd.DataFrame:
+    scene = load_scene(profile, scenario, stamp)
     cfg = scene["cfg"]
     results = scene["results"]
     if penalty == float(cfg["cost"]["penalty_factor"]):
@@ -120,8 +161,10 @@ def cost_for_penalty(scenario: str, penalty: float) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner="按模拟次数重算齐套概率…")
-def probability_for_sim_count(scenario: str, sim_count: int) -> pd.DataFrame:
-    scene = load_scene(scenario)
+def probability_for_sim_count(
+    profile: str, scenario: str, sim_count: int, stamp: str
+) -> pd.DataFrame:
+    scene = load_scene(profile, scenario, stamp)
     cfg = scene["cfg"]
     results = scene["results"]
     if sim_count == int(cfg["probability"]["simulation_count"]):
@@ -146,9 +189,9 @@ def probability_for_sim_count(scenario: str, sim_count: int) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def strategy_gap_rates(scenario: str) -> pd.DataFrame:
+def strategy_gap_rates(profile: str, scenario: str, stamp: str) -> pd.DataFrame:
     """策略口径的缺料率：可用量已扣除对应档位安全库存（落盘结果）。"""
-    scene = load_scene(scenario)
+    scene = load_scene(profile, scenario, stamp)
     cfg = scene["cfg"]
     kitting = scene["results"]["t_kadss_kitting_result"]
     levels = [int(value) for value in cfg["safety_stock"]["service_levels"]]
@@ -188,20 +231,69 @@ def confidence_series(values: pd.Series) -> pd.Series:
     return values.map(CONFIDENCE_LABELS).fillna(values)
 
 
+def layer_table_styler(frame: pd.DataFrame) -> Any:
+    """按枚举给分层明细着色：红=重点关注、黄=观察、绿=稳定/低关注。"""
+    styled = frame.style
+    for column, mapping in LAYER_COLUMN_STYLES.items():
+        if column in frame.columns:
+            styled = styled.map(
+                lambda value, colors=mapping: colors.get(value, ""), subset=[column]
+            )
+    return styled.format({"金额占比（%）": "{:.2f}", "变异系数 CV": "{:.2f}"})
+
+
+def layer_column_help(cfg: dict[str, Any]) -> dict[str, str]:
+    """分层明细列头说明：列名 → 含义，悬停列头 ⓘ 可查看。"""
+    params = cfg["abc_xyz"]
+    return {
+        "ABC": (
+            "按统计窗口内消耗金额（需求数量 × 单价）降序累计占比分档："
+            f"累计占比 ≤ {float(params['abc_a_share']):.0%} 为 A，"
+            f"≤ {float(params['abc_b_share']):.0%} 为 B，其余为 C；金额关注度 A > B > C。"
+        ),
+        "XYZ": (
+            "按周度需求变异系数 CV 分档："
+            f"CV < {float(params['xyz_x_cv']):g} 为 X（稳定），"
+            f"< {float(params['xyz_y_cv']):g} 为 Y（波动），"
+            "其余为 Z（高波动）。"
+        ),
+        "组合": "ABC 与 XYZ 的组合（如 AY），用于制定差异化库存策略。",
+        "变异系数 CV": "周度需求标准差 ÷ 周度需求均值，衡量需求波动程度，数值越大越不稳定。",
+        "金额占比（%）": "该物料统计窗口内消耗金额 ÷ 全部可分层物料的消耗金额合计。",
+        "数据置信度": (
+            f"有效需求周数是否达到最小样本要求（≥ {int(params['min_periods'])} 周）："
+            "高 = 样本充分；低 = 样本不足，分层结论仅供参考。"
+        ),
+        "数据状态": "正常 = 已完成 ABC/XYZ 分层；样本不足 = 有效需求周数不足，不强行分层。",
+    }
+
+
 def main() -> None:
-    cfg = load_config()
-    scenario_keys = list(cfg["scenarios"])
+    base_cfg = load_config()
+    scenario_keys = list(base_cfg["scenarios"])
+    profile_keys = list(base_cfg["profiles"])
 
     with st.sidebar:
         st.header("参数与筛选")
+        profile = st.selectbox(
+            "数据规模",
+            profile_keys,
+            index=profile_keys.index(base_cfg["profile"]),
+            format_func=lambda key: base_cfg["profiles"][key]["label"],
+        )
         scenario = st.selectbox(
             "场景",
             scenario_keys,
-            format_func=lambda key: cfg["scenarios"][key]["label"],
+            format_func=lambda key: base_cfg["scenarios"][key]["label"],
         )
 
+    cfg = load_config(profile=profile)
+    stamp = scene_stamp(profile, scenario)
     try:
-        scene = load_scene(scenario)
+        scene = load_scene(profile, scenario, stamp)
+    except FileNotFoundError as error:
+        st.warning(str(error))
+        st.stop()
     except ValueError as error:
         st.error(str(error))
         st.stop()
@@ -305,8 +397,8 @@ def main() -> None:
         st.stop()
     material_ids = set(abc_view["material_id"])
 
-    kitting = kitting_for_scope(scenario, scope_key)
-    probability = probability_for_sim_count(scenario, sim_count)
+    kitting = kitting_for_scope(profile, scenario, scope_key, stamp)
+    probability = probability_for_sim_count(profile, scenario, sim_count, stamp)
 
     risk_by_order = probability.set_index("order_id")[["on_time_probability", "risk_level"]]
     order_meta = demand_orders[["order_id", "order_type", "required_date"]].copy()
@@ -357,11 +449,16 @@ def main() -> None:
     st.title("KADSS · 供应链齐套预警与动态安全库存优化")
     st.caption(
         f"数据版本 run_id：{run_id} ｜ 场景：{cfg['scenarios'][scenario]['label']} ｜ "
+        f"数据规模：{cfg['profiles'][profile]['label']} ｜ "
         f"seed={cfg['seed']} ｜ base_date={cfg['base_date']} ｜ "
         f"{cfg['scale']['materials']} SKU / {cfg['scale']['demand_orders']} 个需求订单 / "
         f"{cfg['scale']['history_days']} 天历史需求"
     )
-    st.caption(f"当前可用量口径：{scope_text(scope, default_level)} ｜ {DEFAULT_SCOPE_NOTE}")
+    st.caption(
+        DEFAULT_SCOPE_NOTE
+        if scope == default_scope
+        else f"当前可用量口径：{scope_text(scope, default_level)}"
+    )
     if inc_safety_stock:
         st.info(
             f"已勾选安全库存：齐套明细按 {default_level}% 服务水平档位的动态安全库存扣减可用量，"
@@ -412,7 +509,7 @@ def main() -> None:
             texts = [
                 [
                     f"{int(count_matrix.loc[abc_level, xyz_level])} 个"
-                    f"<br>{amount_matrix.loc[abc_level, xyz_level]:.1%} 金额"
+                    f"<br>金额占比 {amount_matrix.loc[abc_level, xyz_level]:.1%}"
                     for xyz_level in XYZ_LEVELS
                 ]
                 for abc_level in ABC_LEVELS
@@ -422,10 +519,16 @@ def main() -> None:
                     z=count_matrix.values,
                     x=list(XYZ_LEVELS),
                     y=list(ABC_LEVELS),
+                    customdata=amount_matrix.values,
                     text=texts,
                     texttemplate="%{text}",
                     colorscale="Blues",
                     colorbar={"title": "物料数"},
+                    hovertemplate=(
+                        "ABC %{y} · XYZ %{x}<br>"
+                        "物料数 %{z}<br>"
+                        "金额占比 %{customdata:.1%}<extra></extra>"
+                    ),
                 )
             )
             figure.update_layout(
@@ -436,7 +539,8 @@ def main() -> None:
             )
             st.plotly_chart(figure, width="stretch")
             st.caption(
-                "单元格显示物料数与金额占比；金额占比为占全部物料的年消耗金额份额。"
+                "单元格显示物料数与金额占比。金额占比 = 该格内物料的统计窗口消耗金额"
+                "（需求数量 × 单价）合计 ÷ 全部物料消耗金额，例如 B-Y 的 8 个物料合计占 3.0%。"
                 "样本不足的物料不进入矩阵，在明细中标注数据置信度。"
             )
 
@@ -460,27 +564,33 @@ def main() -> None:
             layer_table["confidence_level"]
         )
         layer_table["data_status"] = layer_table["data_status"].map(DATA_STATUS_LABELS)
+        layer_display = layer_table.rename(
+            columns={
+                "material_id": "物料编码",
+                "material_name": "物料名称",
+                "category": "类别",
+                "abc_class": "ABC",
+                "xyz_class": "XYZ",
+                "combined_class": "组合",
+                "cv": "变异系数 CV",
+                "amount_share": "金额占比（%）",
+                "confidence_level": "数据置信度",
+                "data_status": "数据状态",
+            }
+        )
         st.dataframe(
-            layer_table.rename(
-                columns={
-                    "material_id": "物料编码",
-                    "material_name": "物料名称",
-                    "category": "类别",
-                    "abc_class": "ABC",
-                    "xyz_class": "XYZ",
-                    "combined_class": "组合",
-                    "cv": "变异系数 CV",
-                    "amount_share": "金额占比（%）",
-                    "confidence_level": "数据置信度",
-                    "data_status": "数据状态",
-                }
-            ),
+            layer_table_styler(layer_display),
             width="stretch",
             hide_index=True,
             column_config={
-                "金额占比（%）": st.column_config.NumberColumn(format="%.2f"),
-                "变异系数 CV": st.column_config.NumberColumn(format="%.2f"),
+                name: st.column_config.Column(name, help=help_text)
+                for name, help_text in layer_column_help(cfg).items()
             },
+        )
+        st.caption(
+            "颜色说明：ABC 中 A 红 / B 黄 / C 绿（金额关注度递减，越红越需重点关注）；"
+            "XYZ 中 Z 红 / Y 黄 / X 绿（需求波动递增）；"
+            "组合按金额关注度与波动综合着色；数据置信度低标红，样本不足标黄。"
         )
 
     # ---------------- Tab 2 齐套预警 ----------------
@@ -704,7 +814,7 @@ def main() -> None:
         st.info(STRATEGY_SCOPE_NOTE_SHORT)
         st.caption(TRADEOFF_NOTE)
 
-        cost = cost_for_penalty(scenario, penalty)
+        cost = cost_for_penalty(profile, scenario, penalty, stamp)
         aggregate = cost.groupby(["strategy", "service_level"], as_index=False).agg(
             avg_inventory_value=("avg_inventory_value", "sum"),
             holding_cost=("holding_cost", "sum"),
@@ -713,7 +823,7 @@ def main() -> None:
             shortage_cost=("shortage_cost", "sum"),
         )
         aggregate = aggregate.merge(
-            strategy_gap_rates(scenario), on=["strategy", "service_level"], how="left"
+            strategy_gap_rates(profile, scenario, stamp), on=["strategy", "service_level"], how="left"
         )
         aggregate["策略"] = aggregate["strategy"].map(STRATEGY_LABELS)
         aggregate["strategy_order"] = aggregate["strategy"].map(STRATEGY_ORDER)

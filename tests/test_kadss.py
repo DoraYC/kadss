@@ -269,6 +269,22 @@ class ProbabilityTest(unittest.TestCase):
         self.assertEqual(row["risk_level"], "低风险")
 
 
+class ProfileTest(unittest.TestCase):
+    def test_profiles_resolve_scale_and_output_root(self) -> None:
+        small = load_config()
+        large = load_config(profile="large")
+        self.assertEqual(small["scale"]["materials"], 200)
+        self.assertEqual(large["scale"]["materials"], 2000)
+        self.assertEqual(large["scale"]["demand_orders"], 300)
+        self.assertEqual(large["scale"]["history_days"], 180)
+        self.assertTrue(str(small["output_root"]).endswith("data"))
+        self.assertTrue(str(large["output_root"]).endswith("data_large"))
+
+    def test_unknown_profile_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            load_config(profile="huge")
+
+
 class PersistenceTest(unittest.TestCase):
     def test_generation_is_reproducible(self) -> None:
         cfg = load_config()

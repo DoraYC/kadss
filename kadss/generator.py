@@ -19,6 +19,9 @@ ORDER_TYPES = ("生产工单", "客户订单", "补货计划", "维修备件需�
 CATEGORIES = ("电子料", "结构件", "标准件", "包材", "备件")
 CATEGORY_WEIGHTS = (0.30, 0.25, 0.25, 0.10, 0.10)
 WEEKDAY_FACTOR = np.array([1.15, 1.10, 1.05, 1.00, 0.95, 0.60, 0.50])  # 周一至周日
+# 按「周聚合 CV」目标反推日粒度噪声：X 稳定、Y 中等、Z 高波动
+VOLATILITY_CLASSES = ("X", "Y", "Z")
+CLASS_CV_RANGES = {"X": (0.02, 0.05), "Y": (0.25, 0.35), "Z": (0.60, 1.00)}
 
 
 def _child_rngs(seed: int, count: int) -> list[np.random.Generator]:
@@ -35,10 +38,33 @@ def _timestamp(value: pd.Timestamp) -> str:
     return value.strftime("%Y-%m-%d 00:00:00")
 
 
+def _assign_volatility_classes(
+    levels: np.ndarray, mix: dict[str, float]
+) -> np.ndarray:
+    """按需求规模从高到低分配 X/Y/Z：高需求物料更可能稳定，避免取整噪声把低量物料推成 Z。"""
+    order = np.argsort(-levels, kind="stable")
+    count = levels.size
+    n_x = int(round(count * float(mix["x"])))
+    n_y = int(round(count * float(mix["y"])))
+    classes = np.full(count, "Z", dtype=object)
+    classes[order[:n_x]] = "X"
+    classes[order[n_x : n_x + n_y]] = "Y"
+    return classes
+
+
+def _class_cv(classes: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """按类别抽样日需求噪声强度，使周聚合后的 CV 落入目标分档。"""
+    cvs = np.empty(classes.size)
+    for label, (low, high) in CLASS_CV_RANGES.items():
+        mask = classes == label
+        cvs[mask] = rng.uniform(low, high, int(mask.sum()))
+    return cvs
+
+
 def _build_materials(
     rng: np.random.Generator, cfg: dict[str, Any], base_date: pd.Timestamp
 ) -> dict[str, Any]:
-    """物料主数据 + 只用于生成器的内部字段（需求基数、变异系数）。"""
+    """物料主数据 + 只用于生成器的内部字段（需求基数、波动类别、噪声强度）。"""
     count = int(cfg["scale"]["materials"])
     supplier_count = int(cfg["supply"]["supplier_pool_size"])
 
@@ -73,13 +99,17 @@ def _build_materials(
             "created_at": _timestamp(base_date - pd.Timedelta(days=180)),
         }
     )
+    levels = rng.integers(20, 801, count).astype(float)
+    mix = cfg["noise"]["volatility_mix"]
+    classes = _assign_volatility_classes(levels, mix)
     return {
         "frame": frame,
         "material_ids": material_ids,
         "supply_type": supply_type,
         "category": category,
-        "monthly_level": rng.integers(20, 801, count).astype(float),
-        "cv": np.clip(rng.gamma(2.0, 0.35, count), 0.10, 2.50),
+        "monthly_level": levels,
+        "volatility_class": classes,
+        "cv": _class_cv(classes, rng),
     }
 
 
@@ -90,7 +120,7 @@ def _build_demand_history(
     scen: dict[str, Any],
     base_date: pd.Timestamp,
 ) -> pd.DataFrame:
-    """日粒度历史需求：星期效应 + 变异系数噪声 + 偶发零需求与尖峰。"""
+    """日粒度历史需求：星期效应 + 分类噪声 + 按波动类别控制偶发零需求与尖峰。"""
     days = int(cfg["scale"]["history_days"])
     dates = pd.date_range(end=base_date - pd.Timedelta(days=1), periods=days, freq="D")
     weekday = WEEKDAY_FACTOR[dates.dayofweek.to_numpy()]
@@ -99,6 +129,8 @@ def _build_demand_history(
     spike_rate = float(noise_cfg["demand_spike_rate"])
     spike_factor = float(noise_cfg["demand_spike_factor"])
     volatility = float(scen["demand_volatility"])
+    zero_by_class = {"X": 0.0, "Y": zero_rate * 0.5, "Z": zero_rate}
+    spike_by_class = {"X": 0.0, "Y": spike_rate * 0.5, "Z": spike_rate}
     limited_days = int(cfg["scale"]["limited_history_days"])
     limited_share = float(cfg["scale"]["limited_history_share"])
     material_count = len(materials["material_ids"])
@@ -112,12 +144,13 @@ def _build_demand_history(
     rows: list[tuple[int, str, str, float]] = []
     history_id = 1
     for index, material_id in enumerate(materials["material_ids"]):
-        cv = float(np.clip(materials["cv"][index] * volatility, 0.10, 2.00))
+        label = materials["volatility_class"][index]
+        cv = float(np.clip(materials["cv"][index] * volatility, 0.01, 2.00))
         base_daily = float(materials["monthly_level"][index]) / 30.0
         noise = rng.gamma(1.0 / cv**2, cv**2, days)
         quantity = base_daily * weekday * noise
-        quantity[rng.random(days) < zero_rate] = 0.0
-        quantity[rng.random(days) < spike_rate] *= spike_factor
+        quantity[rng.random(days) < zero_by_class[label]] = 0.0
+        quantity[rng.random(days) < spike_by_class[label]] *= spike_factor
         quantity = np.round(quantity, 0)
         # 少量物料只有短期历史，用于验证样本不足时的降级与「数据不足」标记
         keep = limited_days if index in limited else days

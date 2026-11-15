@@ -295,6 +295,27 @@ kadss/
 
 数据产物：三场景预计算库约 3.0–3.6 MB/个（合计约 9.7 MB），随仓库提交（TD-1）；读库前校验 `run_id` 与配置一致，防止提交过期快照（AD-2）。
 
+## 性能与验收数据集
+
+数据规模由配置 `profile` 选择，代码中不切换。`small` 为默认演示规模，输出到 `data/` 并随仓库提交；`large` 用于性能验收与面试演示，输出到 `data_large/`，不随仓库提交，按需生成。
+
+| 规模 | 物料 | 需求订单 | 历史需求（物料×天） | BOM 平均层级 | 输出目录 |
+| --- | --- | --- | --- | --- | --- |
+| `small`（默认） | 200 | 50 | 90 天 / 17,520 行 | 1.93 | `data/` |
+| `large`（性能验收） | 2,000 | 300 | 180 天 / 349,800 行 | 3.18 | `data_large/` |
+
+`t_kadss_demand_order` 按订单记录，`large` 只有 300 行；`t_kadss_demand_history` 按「物料 × 天」记录日需求（含零需求日），是安全库存 `σ_d` 与 ABC-XYZ 周度 CV 的输入。两者粒度不同，历史行数不能用订单数乘天数推算。
+
+`--scenario all` 可一次生成三个大规模场景（本机约 50 秒），只做性能验收时用 `--scenario normal` 即可。`data_large/` 不随仓库提交，避免仓库与 Cloud 构建体积膨胀。
+
+```bash
+python -m kadss.build_dataset --profile large --scenario normal
+python -m kadss.build_results --profile large --scenario normal
+streamlit run app.py               # 侧边栏「数据规模」切到大规模
+```
+
+性能测试集用于评估 BOM 展开、共享料分配与多策略齐套在放大 10 倍后的耗时。最近一次实测（2026-11-15，本机）：生成与落库 10.44 秒，计算 5 张结果表 11.03 秒，全流程 21.47 秒，低于 KPI-3 的 60 秒上限。`large` 不改变计算口径，只放大 `scale` 与 BOM 规模，因此不需要新的 AD。
+
 ## 能力 → 架构映射
 
 | 能力 | 落点 | 约束 |
@@ -312,12 +333,12 @@ kadss/
 
 ## 落地差距
 
-| 项 | 现状 | 需要动作 |
+| 项 | 现状 | 状态 |
 | --- | --- | --- |
-| 看板数据源 | [app.py](file:///Users/z2syc/project/kadss/app.py) 用 seed 现场生成假数据，自算缺口、概率与成本；其内置 `compute_available` 是最后一处待删的旧可用量实现 | 删除假数据与近似公式，改为读 SQLite + 调用计算层（AD-1、AD-3、AD-9） |
-| 场景参数 | [app.py](file:///Users/z2syc/project/kadss/app.py#L23-L33) 内置 `SCENARIOS` 与 `Z_BY_LEVEL`，且 `lt_sigma` 为 1.5 / 2.5 / 5.0，与 [kadss.json](file:///Users/z2syc/project/kadss/config/kadss.json#L4-L26) 的 1.5 / 1.5 / 2.5 不一致 | 删除内置常量，统一读配置（AD-4） |
-| 看板参数 | `ss_scale`、惩罚系数 2–5 倍、模拟次数 100–1000 硬编码在 app.py | 入配置或作为函数入参（AD-4） |
-| 自动化测试 | 无 `tests/` | 按 PRD 风险表补多层展开、共享料、替代料、循环 BOM 用例 |
+| 看板数据源 | [app.py](file:///Users/z2syc/project/kadss/app.py) 只读 SQLite 预计算结果，口径重算调用 `compute_kitting` / `simulate_cost` / `compute_probability`（AD-1、AD-3、AD-9） | 已关闭 |
+| 场景与参数 | 场景、服务水平、Z 值、惩罚系数全部来自 `load_config()`，看板控件只传函数入参（AD-4） | 已关闭 |
+| 自动化测试 | [tests/test_kadss.py](file:///Users/z2syc/project/kadss/tests/test_kadss.py) 11 个用例覆盖可用量、共享料、缺料率、安全库存、概率、`run_id` 与重算一致性 | 已关闭 |
+| 大规模数据 | `profile=large` 按需生成到 `data_large/`，默认 `small` 不受影响（见「性能与验收数据集」） | 已关闭 |
 
 ## Deferred
 
@@ -336,5 +357,6 @@ kadss/
 | TD-1 | 预计算库与部署 | 随仓库提交三场景 `kadss.db`（合计约 9.7 MB），移除 `.gitignore` 对 `data/**/kadss.db` 的忽略；读库前自检 `run_id` 与配置一致，防止提交过期快照。目标冷启动 ≤ 30 秒由此满足 |
 | TD-2 | 公共口径模块 | 新建 `kadss/availability.py`（可用量）与 `kadss/metrics.py`（订单状态、物料/订单缺料率），同时完成缺料率的 API 化；作为看板接入硬前置 |
 | TD-3 | 看板缓存粒度 | 重算键固定为 `run_id + 可用量口径 + 服务水平 + 惩罚系数 + 模拟次数`，顺序固定；ABC-XYZ 分层单独以 `run_id` 缓存。先实测，未达 3 秒阈值前不做口径矩阵预计算 |
+| TD-4 | 数据规模切换 | 规模只由 `profile` 选择：`small` 输出 `data/` 并随仓库提交，`large` 输出 `data_large/` 按需生成、不入库；看板侧边栏切换规模只改数据源，不触发生成或计算 |
 
 当前无未决阻塞项。若实现中需推翻任一决策，先修订对应 AD，再改代码。
