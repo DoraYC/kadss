@@ -925,7 +925,7 @@
             <tr><td>US-3 动态安全库存</td><td><code>safety_stock</code></td><td>AD-3、AD-4、AD-6、AD-8</td></tr>
             <tr><td>US-4 BOM 齐套</td><td><code>kitting</code></td><td>AD-3、AD-7、AD-9</td></tr>
             <tr><td>US-5 齐套概率</td><td><code>probability</code></td><td>AD-3、AD-6、AD-8</td></tr>
-            <tr><td>US-6 成本仿真</td><td><code>cost / build_results._gap_rates / labels</code></td><td>AD-3、AD-5、AD-7、AD-8</td></tr>
+            <tr><td>US-6 成本仿真</td><td><code>cost / metrics.gap_rates / labels</code></td><td>AD-3、AD-5、AD-7、AD-8</td></tr>
             <tr><td>US-7 看板</td><td><code>app.py</code></td><td>AD-1、AD-2、AD-4、AD-5、AD-9</td></tr>
             <tr><td>KPI-1 / KPI-2 可复现、可核对</td><td>seed 派生、单点口径、<code>run_id</code></td><td>AD-2、AD-3、AD-8</td></tr>
             <tr><td>KPI-3 性能</td><td>场景预计算 + 内存重算 + 缓存</td><td>AD-9</td></tr>
@@ -945,13 +945,9 @@
         <table class="gap-table">
           <thead><tr><th>项</th><th>现状</th><th>类型</th></tr></thead>
           <tbody>
-            <tr><td>看板数据源</td><td><code>app.py</code> 用 seed 现场生成假数据，自算缺口、概率与成本</td><td><span class="tag-chip fix">需改造</span></td></tr>
+            <tr><td>看板数据源</td><td><code>app.py</code> 用 seed 现场生成假数据，自算缺口、概率与成本；其内置 <code>compute_available</code> 是最后一处待删的旧可用量实现</td><td><span class="tag-chip fix">需改造</span></td></tr>
             <tr><td>场景参数</td><td><code>app.py</code> 内置 <code>SCENARIOS</code> 与 <code>Z_BY_LEVEL</code>，<code>lt_sigma</code> 为 1.5 / 2.5 / 5.0，与配置的 1.5 / 1.5 / 2.5 不一致</td><td><span class="tag-chip fix">需改造</span></td></tr>
             <tr><td>看板参数</td><td><code>ss_scale</code>、惩罚系数 2–5 倍、模拟次数 100–1000 硬编码在 <code>app.py</code></td><td><span class="tag-chip fix">需改造</span></td></tr>
-            <tr><td>公共口径模块缺失</td><td>无 <code>availability.py</code> / <code>metrics.py</code>，可用量、订单状态、缺料率在 <code>safety_stock</code>、<code>cost</code>、<code>probability</code>、<code>kitting.order_status</code> 重复</td><td><span class="tag-chip fix">需改造</span></td></tr>
-            <tr><td>run_id 摘要稳定性</td><td><code>load_base_tables</code> 无 <code>ORDER BY</code>，基础表行序变化会改变摘要与 <code>run_id</code></td><td><span class="tag-chip fix">需改造</span></td></tr>
-            <tr><td>依赖锁定</td><td>无 <code>requirements.txt</code>；补齐时必须用 <code>pip freeze</code> 实测锁定，不手填</td><td><span class="tag-chip add">待补齐</span></td></tr>
-            <tr><td>预计算库入库</td><td><code>.gitignore</code> 忽略 <code>data/**/kadss.db</code>，云上部署无数据可用</td><td><span class="tag-chip dec">已决策</span></td></tr>
             <tr><td>自动化测试</td><td>无 <code>tests/</code>，PRD 风险表要求的多层展开、共享料、替代料、循环 BOM 用例未落地</td><td><span class="tag-chip add">待补齐</span></td></tr>
           </tbody>
         </table>

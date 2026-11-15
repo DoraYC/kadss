@@ -9,6 +9,5 @@ __pycache__/
 # macOS
 .DS_Store
 
-# SQLite 运行时文件（数据库可由 python -m kadss.build_dataset 重建；CSV 与摘要已入库）
+# SQLite 运行时文件（预计算库随仓库提交，见 TD-1）
 *.db-journal
-data/**/kadss.db

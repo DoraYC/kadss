@@ -21,6 +21,7 @@ from kadss.kitting import compute_kitting
 from kadss.probability import compute_probability
 from kadss.safety_stock import compute_safety_stock
 from kadss.store import output_paths
+from kadss.validation import PRIMARY_KEYS
 
 BASE_TABLES = (
     "t_kadss_material",
@@ -74,21 +75,75 @@ def compute_run_id(
 
 
 def load_base_tables(db_path: str | Path) -> dict[str, pd.DataFrame]:
+    """按主键排序读取基础表，确保数据摘要与 run_id 不受物理行序影响。"""
     with closing(sqlite3.connect(db_path)) as conn:
         return {
-            table: pd.read_sql_query(f"SELECT * FROM {table}", conn)
+            table: pd.read_sql_query(
+                f"SELECT * FROM {table} ORDER BY {', '.join(PRIMARY_KEYS[table])}", conn
+            )
             for table in BASE_TABLES
         }
 
 
+def _assert_run_id(frames: dict[str, pd.DataFrame], run_id: str) -> None:
+    for table in RESULT_TABLES:
+        values = set(frames[table]["run_id"].astype(str))
+        if values != {run_id}:
+            raise ValueError(
+                f"结果表 {table} 的 run_id 必须唯一且等于 {run_id}，实际为 {sorted(values)}"
+            )
+
+
 def write_results(db_path: str | Path, frames: dict[str, pd.DataFrame], run_id: str) -> None:
-    """每个场景一个库，只保留当前 run_id 的结果，避免旧口径数据混入看板。"""
+    """每个场景一个库，单事务覆盖 5 张结果表，只保留当前 run_id 的结果。"""
+    _assert_run_id(frames, run_id)
     with closing(sqlite3.connect(db_path)) as conn:
-        for table in RESULT_TABLES:
-            conn.execute(f"DELETE FROM {table}")
-        for table in RESULT_TABLES:
-            frames[table].to_sql(table, conn, if_exists="append", index=False)
-        conn.commit()
+        with conn:
+            for table in RESULT_TABLES:
+                conn.execute(f"DELETE FROM {table}")
+            for table in RESULT_TABLES:
+                frame = frames[table]
+                columns = ", ".join(frame.columns)
+                placeholders = ", ".join("?" for _ in frame.columns)
+                rows = frame.astype(object).where(pd.notna(frame), None).values.tolist()
+                conn.executemany(
+                    f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",
+                    [tuple(row) for row in rows],
+                )
+
+
+def result_run_ids(db_path: str | Path) -> dict[str, set[str]]:
+    with closing(sqlite3.connect(db_path)) as conn:
+        return {
+            table: set(
+                pd.read_sql_query(f"SELECT DISTINCT run_id FROM {table}", conn)[
+                    "run_id"
+                ].astype(str)
+            )
+            for table in RESULT_TABLES
+        }
+
+
+def verify_results(
+    db_path: str | Path,
+    scenario: str,
+    cfg: dict[str, Any],
+    data: dict[str, pd.DataFrame] | None = None,
+) -> str:
+    """读库前自检：结果表 run_id 一致，且与当前 seed、base_date 和基础数据推导值一致。"""
+    data = load_base_tables(db_path) if data is None else data
+    expected = compute_run_id(scenario, cfg, data)
+    actual = result_run_ids(db_path)
+    mismatched = {
+        table: sorted(values) for table, values in actual.items() if values != {expected}
+    }
+    if mismatched:
+        raise ValueError(
+            "结果库与当前配置不一致，请重新运行 python -m kadss.build_results："
+            f"期望 run_id={expected}（seed={cfg['seed']}，base_date={cfg['base_date']}），"
+            f"实际={mismatched}"
+        )
+    return expected
 
 
 def _confidence_map(
@@ -181,4 +236,5 @@ def run_scenario(
         "t_kadss_cost_simulation_result": cost,
     }
     write_results(paths["db"], frames, run_id)
+    verify_results(paths["db"], scenario, cfg, data)
     return frames, run_id

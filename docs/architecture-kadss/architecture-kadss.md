@@ -77,7 +77,7 @@ flowchart LR
   - `run_id = <scenario>-<参数哈希12位>-<基础数据摘要8位>`，只由 `pipeline` 计算；参数哈希固定覆盖 `seed / base_date / abc_xyz / safety_stock / kitting / probability / cost`，生成侧参数变化由基础数据摘要体现。
   - 5 张结果表每行必须携带同一个 `run_id`；每次计算先清空 5 张结果表再写入，清空与写入在同一事务内完成，提交前断言 5 张表的 `run_id` 集合都等于当前值。
   - 读库前自检：5 张结果表 `run_id` 集合相等，且与当前配置的 `seed`、`base_date` 匹配；不一致时拒绝启动并提示重建（为提交预计算库兜底）。
-  - 读取基础表必须按主键排序后再计算摘要；当前 `load_base_tables` 无 `ORDER BY`，行序变化会改变摘要与 `run_id`。
+  - 读取基础表必须按主键排序后再计算摘要；`load_base_tables` 已按 `PRIMARY_KEYS` 排序，行序变化不再影响 `run_id`。
   - 看板只读当前库内同一 `run_id`，不得跨 run 聚合。
   - 执行顺序固定为 `build_dataset`（重建基础表）→ `build_results`（写结果表）；`build_dataset` 会重建数据库，必须先于计算执行。
 
@@ -257,7 +257,7 @@ flowchart LR
 | Plotly | 7.1.0 |
 | SQLite | 随 Python 3.14.7 内置 sqlite3 |
 
-版本以当前本地实测为准。补齐 `requirements.txt` 时必须用 `pip freeze` 锁定实际安装版本，不手填、不跨大版本升级。
+版本以当前本地实测为准。`requirements.txt` 由 `pip freeze` 锁定实际安装版本，不手填、不跨大版本升级。
 
 ## 结构种子
 
@@ -314,13 +314,9 @@ kadss/
 
 | 项 | 现状 | 需要动作 |
 | --- | --- | --- |
-| 看板数据源 | [app.py](file:///Users/z2syc/project/kadss/app.py) 用 seed 现场生成假数据，自算缺口、概率与成本 | 删除假数据与近似公式，改为读 SQLite + 调用计算层（AD-1、AD-9） |
+| 看板数据源 | [app.py](file:///Users/z2syc/project/kadss/app.py) 用 seed 现场生成假数据，自算缺口、概率与成本；其内置 `compute_available` 是最后一处待删的旧可用量实现 | 删除假数据与近似公式，改为读 SQLite + 调用计算层（AD-1、AD-3、AD-9） |
 | 场景参数 | [app.py](file:///Users/z2syc/project/kadss/app.py#L23-L33) 内置 `SCENARIOS` 与 `Z_BY_LEVEL`，且 `lt_sigma` 为 1.5 / 2.5 / 5.0，与 [kadss.json](file:///Users/z2syc/project/kadss/config/kadss.json#L4-L26) 的 1.5 / 1.5 / 2.5 不一致 | 删除内置常量，统一读配置（AD-4） |
 | 看板参数 | `ss_scale`、惩罚系数 2–5 倍、模拟次数 100–1000 硬编码在 app.py | 入配置或作为函数入参（AD-4） |
-| 公共口径模块缺失 | 无 `availability.py` / `metrics.py`，可用量、订单状态、缺料率在 `safety_stock`、`cost`、`probability`、`kitting.order_status` 重复 | 新建两模块一次性收口，作为看板接入与缺料率 API 化的共同前置（AD-3） |
-| run_id 摘要稳定性 | `load_base_tables` 无 `ORDER BY`，基础表行序变化会改变摘要与 `run_id` | 按主键排序后再算摘要；与“看板数据源”同为必改项（AD-2、KPI-1） |
-| 依赖锁定 | 无 `requirements.txt` | 用 `pip freeze` 实测锁定当前版本，不手填（KPI-5） |
-| 预计算库入库 | `.gitignore` 忽略 `data/**/kadss.db` | 移除该忽略规则并提交三场景库；保留启动/CI 的 `run_id` 自检（TD-1、AD-2） |
 | 自动化测试 | 无 `tests/` | 按 PRD 风险表补多层展开、共享料、替代料、循环 BOM 用例 |
 
 ## Deferred
