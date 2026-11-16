@@ -160,27 +160,19 @@ def cost_for_penalty(
     )
 
 
-@st.cache_data(show_spinner="按模拟次数重算齐套概率…")
-def probability_for_sim_count(
-    profile: str, scenario: str, sim_count: int, stamp: str
+@st.cache_data(show_spinner="按当前口径重算齐套概率…")
+def probability_for_scope(
+    profile: str, scenario: str, scope_key: tuple[bool, ...], sim_count: int, stamp: str
 ) -> pd.DataFrame:
+    """按当前可用量口径的齐套明细重算按时齐套概率，避免结论与概率口径不一致。"""
     scene = load_scene(profile, scenario, stamp)
     cfg = scene["cfg"]
-    results = scene["results"]
-    if sim_count == int(cfg["probability"]["simulation_count"]):
-        return results["t_kadss_kitting_probability"]
-    default_level = int(cfg["safety_stock"]["default_service_level"])
-    stored = results["t_kadss_kitting_result"]
-    baseline = stored[
-        (stored["strategy"] == "baseline")
-        & (stored["service_level"] == default_level)
-    ]
     overridden = copy.deepcopy(cfg)
     overridden["probability"]["simulation_count"] = sim_count
     return compute_probability(
-        kitting=baseline,
+        kitting=kitting_for_scope(profile, scenario, scope_key, stamp),
         orders=scene["base"]["t_kadss_demand_order"],
-        safety_stock=results["t_kadss_safety_stock_result"],
+        safety_stock=scene["results"]["t_kadss_safety_stock_result"],
         cfg=overridden,
         base_date=pd.Timestamp(cfg["base_date"]).normalize(),
         run_id=scene["run_id"],
@@ -231,6 +223,62 @@ def confidence_series(values: pd.Series) -> pd.Series:
     return values.map(CONFIDENCE_LABELS).fillna(values)
 
 
+PAGE_SIZES = (10, 20, 30, 50)
+
+
+def _set_page(page_key: str, value: int) -> None:
+    st.session_state[page_key] = value
+
+
+def page_slice(
+    frame: pd.DataFrame, page_key: str, size_key: str, default_size: int = 20
+) -> tuple[pd.DataFrame, int, int, int, int]:
+    """按会话状态切分当前页，返回（本页数据, 起始序号, 结束序号, 页码, 总页数）。"""
+    size = int(st.session_state.get(size_key, default_size))
+    pages = max(1, (len(frame) + size - 1) // size)
+    page = min(max(int(st.session_state.get(page_key, 1)), 1), pages)
+    st.session_state[page_key] = page
+    start = (page - 1) * size
+    end = min(start + size, len(frame))
+    return frame.iloc[start:end], start, end, page, pages
+
+
+def pagination_bar(
+    page_key: str, size_key: str, size: int, page: int, pages: int, total: int
+) -> None:
+    """列表底部分页：左侧留白，右侧显示每页条数与翻页控件。"""
+    _, right = st.columns([3, 2], vertical_alignment="center")
+    with right:
+        size_col, prev_col, next_col, info_col = st.columns(
+            [1.4, 0.8, 0.8, 1.4], vertical_alignment="center"
+        )
+        size_col.selectbox(
+            "每页条数",
+            PAGE_SIZES,
+            index=PAGE_SIZES.index(size),
+            key=size_key,
+            format_func=lambda value: f"每页 {value} 条",
+            label_visibility="collapsed",
+        )
+        prev_col.button(
+            "<",
+            key=f"{page_key}_prev",
+            disabled=page <= 1,
+            on_click=_set_page,
+            args=(page_key, page - 1),
+            width="stretch",
+        )
+        next_col.button(
+            ">",
+            key=f"{page_key}_next",
+            disabled=page >= pages,
+            on_click=_set_page,
+            args=(page_key, page + 1),
+            width="stretch",
+        )
+        info_col.caption(f"共 {total} 条")
+
+
 def layer_table_styler(frame: pd.DataFrame) -> Any:
     """按枚举给分层明细着色：红=重点关注、黄=观察、绿=稳定/低关注。"""
     styled = frame.style
@@ -240,6 +288,47 @@ def layer_table_styler(frame: pd.DataFrame) -> Any:
                 lambda value, colors=mapping: colors.get(value, ""), subset=[column]
             )
     return styled.format({"金额占比（%）": "{:.2f}", "变异系数 CV": "{:.2f}"})
+
+
+ORDER_COLUMN_STYLES = {
+    "现货齐套": {"不齐套": STYLE_RED, "数据不足": STYLE_YELLOW, "齐套": STYLE_GREEN},
+    "风险等级": {
+        "高风险": STYLE_RED,
+        "中风险": STYLE_YELLOW,
+        "低风险": STYLE_GREEN,
+        "数据不足": STYLE_YELLOW,
+    },
+}
+
+
+def _probability_color(text: Any, risk_low: float, risk_medium: float) -> str:
+    """按时齐套概率按风险阈值着色，空值标黄提示数据不足。"""
+    if not isinstance(text, str) or not text.endswith("%"):
+        return STYLE_YELLOW
+    probability = float(text.rstrip("%")) / 100
+    if probability >= risk_low:
+        return STYLE_GREEN
+    if probability >= risk_medium:
+        return STYLE_YELLOW
+    return STYLE_RED
+
+
+def order_table_styler(
+    frame: pd.DataFrame, risk_low: float, risk_medium: float
+) -> Any:
+    """订单齐套表：红=高风险/不齐套、黄=中风险/数据不足、绿=低风险/齐套。"""
+    styled = frame.style
+    for column, mapping in ORDER_COLUMN_STYLES.items():
+        if column in frame.columns:
+            styled = styled.map(
+                lambda value, colors=mapping: colors.get(value, ""), subset=[column]
+            )
+    if "按时齐套概率" in frame.columns:
+        styled = styled.map(
+            lambda value: _probability_color(value, risk_low, risk_medium),
+            subset=["按时齐套概率"],
+        )
+    return styled
 
 
 def layer_column_help(cfg: dict[str, Any]) -> dict[str, str]:
@@ -349,7 +438,7 @@ def main() -> None:
         st.subheader("成本与模拟参数")
         penalty = st.slider(
             "缺料惩罚系数（倍）",
-            2.0,
+            1.5,
             5.0,
             float(cfg["cost"]["penalty_factor"]),
             0.5,
@@ -379,7 +468,6 @@ def main() -> None:
             max_value=max_date,
         )
         risk_selected = st.multiselect("订单风险等级", list(RISK_ORDER), default=list(RISK_ORDER))
-        top_n = st.slider("预警表显示条数", 10, 100, 20, 10)
 
     scope = {
         "in_transit": inc_transit,
@@ -398,7 +486,9 @@ def main() -> None:
     material_ids = set(abc_view["material_id"])
 
     kitting = kitting_for_scope(profile, scenario, scope_key, stamp)
-    probability = probability_for_sim_count(profile, scenario, sim_count, stamp)
+    probability = probability_for_scope(
+        profile, scenario, scope_key, sim_count, stamp
+    )
 
     risk_by_order = probability.set_index("order_id")[["on_time_probability", "risk_level"]]
     order_meta = demand_orders[["order_id", "order_type", "required_date"]].copy()
@@ -465,15 +555,26 @@ def main() -> None:
             "仅在内存重算。"
         )
 
+    st.markdown(
+        """
+        <style>
+        .st-key-metric-high-risk-orders [data-testid="stMetricValue"] {
+            color: #b91c1c;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(MATERIAL_SHORTAGE_RATE, f"{material_rate:.1%}")
     c2.metric(ORDER_SHORTAGE_RATE, f"{order_rate:.1%}")
-    c3.metric("高风险 / 数据不足订单", high_risk_orders)
+    with c3.container(key="metric-high-risk-orders"):
+        st.metric("高风险 / 数据不足订单", high_risk_orders)
     c4.metric(
         "平均齐套概率",
         "—" if np.isnan(average_probability) else f"{average_probability:.0%}",
     )
-    st.caption("以上指标按当前筛选范围统计；齐套概率与风险等级基于落盘 baseline 口径。")
+    st.caption("以上指标按当前筛选范围统计；齐套概率与风险等级按当前可用量口径重算。")
 
     tab_layers, tab_kitting, tab_stock, tab_cost = st.tabs(
         ["物料分层", "齐套预警", "库存策略", "成本对比"]
@@ -595,122 +696,183 @@ def main() -> None:
 
     # ---------------- Tab 2 齐套预警 ----------------
     with tab_kitting:
-        st.subheader("订单齐套预警")
+        st.subheader(
+            "订单齐套预警",
+            help=(
+                "「现货齐套」按当前可用量口径判断此刻是否齐套；「按时齐套概率」是缺口物料在"
+                "需求日期前全部到货的概率，风险等级按其分档。因此现货缺口存在、但交期充裕时，"
+                f"概率可达 100%、风险为低；概率按当前口径重算，模拟次数 {sim_count}。"
+                "颜色：红 = 高风险 / 不齐套，黄 = 中风险 / 数据不足，绿 = 低风险 / 齐套。"
+            ),
+        )
         if order_view.empty:
             st.info("当前筛选条件下没有需求订单。")
         else:
-            sort_label = st.radio(
-                "排序方式",
-                ["按缺口金额", "按齐套概率"],
-                horizontal=True,
+            sorted_orders = order_view.sort_values(
+                ["gap_amount", "order_id"], ascending=[False, True]
             )
-            if sort_label == "按缺口金额":
-                sorted_orders = order_view.sort_values(
-                    ["gap_amount", "order_id"], ascending=[False, True]
-                )
-            else:
-                sorted_orders = order_view.sort_values(
-                    ["on_time_probability", "order_id"],
-                    ascending=[True, True],
-                    na_position="last",
-                )
-            order_table = sorted_orders.head(top_n).copy()
-            order_table["probability_pct"] = order_table["on_time_probability"] * 100
-            st.dataframe(
-                order_table[
-                    [
-                        "order_id",
-                        "order_type",
-                        "required_date",
-                        "kitting_status",
-                        "gap_rows",
-                        "gap_amount",
-                        "probability_pct",
-                        "risk_level",
-                    ]
-                ].rename(
-                    columns={
-                        "order_id": "订单号",
-                        "order_type": "需求类型",
-                        "required_date": "需求日期",
-                        "kitting_status": "齐套结论",
-                        "gap_rows": "缺口物料数",
-                        "gap_amount": "缺口金额",
-                        "probability_pct": "齐套概率（%）",
-                        "risk_level": "风险等级",
-                    }
+            order_table, _, _, page, pages = page_slice(
+                sorted_orders, "order_page", "order_page_size"
+            )
+            order_table = order_table.copy()
+            order_table["probability_text"] = order_table["on_time_probability"].map(
+                lambda value: "—" if pd.isna(value) else f"{value:.0%}"
+            )
+            risk_low = float(cfg["probability"]["risk_low"])
+            risk_medium = float(cfg["probability"]["risk_medium"])
+            order_help = {
+                "现货齐套": (
+                    "按当前可用量口径（当前库存 + 在途 − 已分配等）判断此刻是否齐套："
+                    "订单任一物料可用量不足即为「不齐套」；含样本不足物料时标注「数据不足」。"
                 ),
+                "缺口物料数": "该订单存在缺口的物料行数（毛需求 > 可用量），一行对应一个物料。",
+                "缺口金额（元）": "该订单全部缺口金额合计（缺口数量 × 单价）。",
+                "按时齐套概率": (
+                    "缺口物料在需求日期前全部到货的概率（按当前口径与模拟次数做蒙特卡洛重算）。"
+                    "现货缺口存在但交期充裕时，该概率可接近或达到 100%。"
+                ),
+                "风险等级": (
+                    f"按按时齐套概率分档：≥ {risk_low:.0%} 低风险、"
+                    f"{risk_medium:.0%}–{risk_low:.0%} 中风险、< {risk_medium:.0%} 高风险；"
+                    "概率为空时标注「数据不足」。"
+                ),
+            }
+            order_display = order_table[
+                [
+                    "order_id",
+                    "order_type",
+                    "required_date",
+                    "kitting_status",
+                    "gap_rows",
+                    "gap_amount",
+                    "probability_text",
+                    "risk_level",
+                ]
+            ].rename(
+                columns={
+                    "order_id": "订单号",
+                    "order_type": "需求类型",
+                    "required_date": "需求日期",
+                    "kitting_status": "现货齐套",
+                    "gap_rows": "缺口物料数",
+                    "gap_amount": "缺口金额（元）",
+                    "probability_text": "按时齐套概率",
+                    "risk_level": "风险等级",
+                }
+            )
+            st.dataframe(
+                order_table_styler(order_display, risk_low, risk_medium),
                 width="stretch",
                 hide_index=True,
                 column_config={
                     "需求日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                    "缺口金额": st.column_config.NumberColumn(format="%.2f"),
-                    "齐套概率（%）": st.column_config.NumberColumn(format="%.0f"),
+                    "缺口金额（元）": st.column_config.NumberColumn(
+                        format="%.2f", help=order_help["缺口金额（元）"]
+                    ),
+                    **{
+                        name: st.column_config.Column(name, help=text)
+                        for name, text in order_help.items()
+                        if name != "缺口金额（元）"
+                    },
                 },
             )
-            st.caption(
-                "齐套结论按当前可用量口径在内存重算；齐套概率与风险等级取落盘 baseline 结果，"
-                f"模拟次数 {sim_count}。"
+            pagination_bar(
+                "order_page",
+                "order_page_size",
+                int(st.session_state.get("order_page_size", 20)),
+                page,
+                pages,
+                len(order_view),
             )
 
-            st.markdown("##### 订单缺口明细与交期分布假设")
-            detail_order = st.selectbox(
-                "选择订单", sorted(order_ids & set(order_view["order_id"]))
+            head_col, select_col = st.columns(
+                [1.6, 2], vertical_alignment="center"
             )
-            if detail_order:
-                default_lt = safety_stock[
-                    safety_stock["service_level"] == default_level
-                ][["material_id", "lt_avg", "sigma_lt", "lt_source"]]
-                detail = kitting_view[kitting_view["order_id"] == detail_order].merge(
-                    default_lt, on="material_id", how="left"
-                )
-                detail = detail.sort_values("gap_amount", ascending=False)
-                detail["confidence_level"] = confidence_series(
-                    detail["confidence_level"]
-                )
+            head_col.markdown(
+                "<div style='height:40px;display:flex;align-items:center;font-size:1.25rem;"
+                "font-weight:600;white-space:nowrap;'>订单缺口明细与交期分布假设</div>",
+                unsafe_allow_html=True,
+            )
+            detail_order = select_col.selectbox(
+                "选择订单",
+                ["全部订单", *sorted(order_ids & set(order_view["order_id"]))],
+                label_visibility="collapsed",
+            )
+            default_lt = safety_stock[
+                safety_stock["service_level"] == default_level
+            ][["material_id", "lt_avg", "sigma_lt", "lt_source"]]
+            detail_source = (
+                kitting_view
+                if detail_order == "全部订单"
+                else kitting_view[kitting_view["order_id"] == detail_order]
+            )
+            detail = detail_source[detail_source["gap_qty"] > 0].merge(
+                default_lt, on="material_id", how="left"
+            )
+            detail = detail.sort_values(
+                ["order_id", "gap_amount"], ascending=[True, False]
+            )
+            if detail.empty:
+                st.info("所选范围内没有缺口物料。")
+            else:
                 detail["lt_source"] = detail["lt_source"].map(LT_SOURCE_LABELS)
+                detail_page, _, _, page_no, page_total = page_slice(
+                    detail,
+                    f"detail_page_{detail_order}",
+                    "detail_page_size",
+                    default_size=10,
+                )
+                detail_display = detail_page[
+                    [
+                        "order_id",
+                        "material_id",
+                        "material_name",
+                        "abc_label",
+                        "xyz_label",
+                        "req_qty",
+                        "available_qty",
+                        "gap_qty",
+                        "gap_amount",
+                        "lt_avg",
+                        "sigma_lt",
+                        "lt_source",
+                    ]
+                ].rename(
+                    columns={
+                        "order_id": "订单号",
+                        "material_id": "物料编码",
+                        "material_name": "物料名称",
+                        "abc_label": "ABC",
+                        "xyz_label": "XYZ",
+                        "req_qty": "毛需求",
+                        "available_qty": "可用量",
+                        "gap_qty": "缺口",
+                        "gap_amount": "缺口金额（元）",
+                        "lt_avg": "总提前期均值（天）",
+                        "sigma_lt": "总提前期标准差（天）",
+                        "lt_source": "交期来源",
+                    }
+                )
                 st.dataframe(
-                    detail[
-                        [
-                            "material_id",
-                            "material_name",
-                            "abc_label",
-                            "xyz_label",
-                            "req_qty",
-                            "available_qty",
-                            "gap_qty",
-                            "gap_amount",
-                            "lt_avg",
-                            "sigma_lt",
-                            "lt_source",
-                            "confidence_level",
-                        ]
-                    ].rename(
-                        columns={
-                            "material_id": "物料编码",
-                            "material_name": "物料名称",
-                            "abc_label": "ABC",
-                            "xyz_label": "XYZ",
-                            "req_qty": "毛需求",
-                            "available_qty": "可用量",
-                            "gap_qty": "缺口",
-                            "gap_amount": "缺口金额",
-                            "lt_avg": "总提前期均值（天）",
-                            "sigma_lt": "总提前期标准差（天）",
-                            "lt_source": "交期来源",
-                            "confidence_level": "数据置信度",
-                        }
-                    ),
+                    layer_table_styler(detail_display),
                     width="stretch",
                     hide_index=True,
                     column_config={
                         "毛需求": st.column_config.NumberColumn(format="%.1f"),
                         "可用量": st.column_config.NumberColumn(format="%.1f"),
                         "缺口": st.column_config.NumberColumn(format="%.1f"),
-                        "缺口金额": st.column_config.NumberColumn(format="%.2f"),
+                        "缺口金额（元）": st.column_config.NumberColumn(format="%.2f"),
                         "总提前期均值（天）": st.column_config.NumberColumn(format="%.1f"),
                         "总提前期标准差（天）": st.column_config.NumberColumn(format="%.1f"),
                     },
+                )
+                pagination_bar(
+                    f"detail_page_{detail_order}",
+                    "detail_page_size",
+                    int(st.session_state.get("detail_page_size", 10)),
+                    page_no,
+                    page_total,
+                    len(detail),
                 )
                 st.caption(
                     "交期分布假设：齐套概率以各缺口物料的总提前期 N(总提前期均值, 标准差) 为随机输入，"
@@ -734,12 +896,12 @@ def main() -> None:
         p1, p2, p3 = st.columns(3)
         p1.metric("目标服务水平", f"{service_level}%")
         p2.metric("Z 值", "—" if np.isnan(z_value) else f"{z_value:.2f}")
-        p3.metric("建议补货金额合计", f"{total_suggested:,.0f}")
+        p3.metric("建议补货金额合计（元）", f"{total_suggested:,.2f}")
 
         if level_rows.empty:
             st.info("当前筛选下没有安全库存结果。")
         else:
-            st.subheader(f"建议补货金额 Top 10（{service_level}% 服务水平）")
+            st.subheader(f"建议补货金额 Top 10（元） · {service_level}% 服务水平")
             top_stock = level_rows.sort_values("suggested_amount", ascending=False).head(10)
             stock_figure = px.bar(
                 top_stock.sort_values("suggested_amount"),
@@ -747,10 +909,10 @@ def main() -> None:
                 y="material_id",
                 orientation="h",
                 labels={
-                    "suggested_amount": "建议补货金额",
+                    "suggested_amount": "建议补货金额（元）",
                     "material_id": "物料编码",
                 },
-                title=f"建议补货金额 Top 10 · {service_level}% 服务水平",
+                title=f"建议补货金额 Top 10（元） · {service_level}% 服务水平",
             )
             stock_figure.update_layout(height=380, margin={"l": 10, "r": 20, "t": 50, "b": 40})
             st.plotly_chart(stock_figure, width="stretch")
@@ -780,32 +942,48 @@ def main() -> None:
             stock_table["confidence_level"] = confidence_series(
                 stock_table["confidence_level"]
             )
+            stock_display = stock_table.rename(
+                columns={
+                    "material_id": "物料编码",
+                    "material_name": "物料名称",
+                    "abc_label": "ABC",
+                    "xyz_label": "XYZ",
+                    "lt_total": "LT_total（天）",
+                    "dynamic_ss": "动态安全库存",
+                    "fixed_ss": "固定安全库存",
+                    "delta": "动态 − 固定",
+                    "suggested_qty": "建议补货量",
+                    "suggested_amount": "建议补货金额（元）",
+                    "lt_source": "交期来源",
+                    "confidence_level": "数据置信度",
+                }
+            )
             st.dataframe(
-                stock_table.rename(
-                    columns={
-                        "material_id": "物料编码",
-                        "material_name": "物料名称",
-                        "abc_label": "ABC",
-                        "xyz_label": "XYZ",
-                        "lt_total": "LT_total（天）",
-                        "dynamic_ss": "动态安全库存",
-                        "fixed_ss": "固定安全库存",
-                        "delta": "动态 − 固定",
-                        "suggested_qty": "建议补货量",
-                        "suggested_amount": "建议补货金额",
-                        "lt_source": "交期来源",
-                        "confidence_level": "数据置信度",
-                    }
-                ),
+                layer_table_styler(stock_display),
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "LT_total（天）": st.column_config.NumberColumn(format="%.0f"),
-                    "动态安全库存": st.column_config.NumberColumn(format="%.1f"),
-                    "固定安全库存": st.column_config.NumberColumn(format="%.1f"),
+                    "LT_total（天）": st.column_config.NumberColumn(
+                        format="%.0f",
+                        help=(
+                            "总提前期 = 采购 + 生产 + 检验 + 物流提前期（天）；"
+                            "历史收货样本足够时，安全库存计算改用历史提前期均值。"
+                        ),
+                    ),
+                    "动态安全库存": st.column_config.NumberColumn(
+                        format="%.1f",
+                        help=(
+                            "Z × √(LT_avg × 需求标准差² + 日均需求² × 交期标准差²)，"
+                            "同时考虑需求波动与交期波动；Z 由目标服务水平决定。"
+                        ),
+                    ),
+                    "固定安全库存": st.column_config.NumberColumn(
+                        format="%.1f",
+                        help="日均需求 × 固定覆盖天数（配置项），不考虑需求与交期波动。",
+                    ),
                     "动态 − 固定": st.column_config.NumberColumn(format="%.1f"),
                     "建议补货量": st.column_config.NumberColumn(format="%.1f"),
-                    "建议补货金额": st.column_config.NumberColumn(format="%.2f"),
+                    "建议补货金额（元）": st.column_config.NumberColumn(format="%.2f"),
                 },
             )
 
@@ -834,9 +1012,9 @@ def main() -> None:
         )
 
         metric_options = {
-            "平均库存金额": "avg_inventory_value",
-            "持有成本": "holding_cost",
-            "缺料成本": "shortage_cost",
+            "平均库存金额（元）": "avg_inventory_value",
+            "持有成本（元）": "holding_cost",
+            "缺料成本（元）": "shortage_cost",
             MATERIAL_SHORTAGE_RATE: "material_rate",
             ORDER_SHORTAGE_RATE: "order_rate",
         }
@@ -880,11 +1058,11 @@ def main() -> None:
         cost_table = cost_table.rename(
             columns={
                 "service_level": "服务水平（%）",
-                "avg_inventory_value": "平均库存金额",
-                "holding_cost": "持有成本",
+                "avg_inventory_value": "平均库存金额（元）",
+                "holding_cost": "持有成本（元）",
                 "shortage_qty": "缺料数量",
                 "shortage_days": "缺料天数",
-                "shortage_cost": "缺料成本",
+                "shortage_cost": "缺料成本（元）",
                 "material_rate": MATERIAL_SHORTAGE_RATE,
                 "order_rate": ORDER_SHORTAGE_RATE,
             }
@@ -894,10 +1072,10 @@ def main() -> None:
             width="stretch",
             hide_index=True,
             column_config={
-                "平均库存金额": st.column_config.NumberColumn(format="%.0f"),
-                "持有成本": st.column_config.NumberColumn(format="%.0f"),
+                "平均库存金额（元）": st.column_config.NumberColumn(format="%.2f"),
+                "持有成本（元）": st.column_config.NumberColumn(format="%.2f"),
                 "缺料数量": st.column_config.NumberColumn(format="%.1f"),
-                "缺料成本": st.column_config.NumberColumn(format="%.0f"),
+                "缺料成本（元）": st.column_config.NumberColumn(format="%.2f"),
                 MATERIAL_SHORTAGE_RATE: st.column_config.NumberColumn(format="%.2f"),
                 ORDER_SHORTAGE_RATE: st.column_config.NumberColumn(format="%.2f"),
             },
@@ -911,7 +1089,7 @@ def main() -> None:
             delta_rows.append(
                 {
                     "服务水平（%）": level,
-                    "平均库存金额变化": level_cost.loc["dynamic", "avg_inventory_value"]
+                    "平均库存金额变化（元）": level_cost.loc["dynamic", "avg_inventory_value"]
                     - level_cost.loc["fixed", "avg_inventory_value"],
                     "物料缺料率变化（百分点）": (
                         level_cost.loc["dynamic", "material_rate"]
@@ -932,7 +1110,7 @@ def main() -> None:
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "平均库存金额变化": st.column_config.NumberColumn(format="%.0f"),
+                    "平均库存金额变化（元）": st.column_config.NumberColumn(format="%.2f"),
                     "物料缺料率变化（百分点）": st.column_config.NumberColumn(format="%.2f"),
                     "订单缺料率变化（百分点）": st.column_config.NumberColumn(format="%.2f"),
                 },
