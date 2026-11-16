@@ -1026,17 +1026,21 @@ def main() -> None:
         chart_rows["指标值"] = (
             chart_rows[metric_column] * 100 if is_rate else chart_rows[metric_column]
         )
+        # 用字符串档位做分类轴，避免数值轴自动生成 90/94/98 这类与柱位不对应的刻度
+        chart_rows["服务水平"] = chart_rows["service_level"].astype(int).astype(str) + "%"
         axis_title = f"{metric_label}（%）" if is_rate else metric_label
         cost_figure = px.bar(
             chart_rows,
-            x="service_level",
+            x="服务水平",
             y="指标值",
             color="策略",
             barmode="group",
             text_auto=".2f" if is_rate else ".3s",
             title=f"{metric_label} · 固定 vs 动态安全库存（惩罚系数 {penalty:.1f} 倍）",
-            labels={"service_level": "服务水平（%）", "指标值": axis_title},
+            labels={"服务水平": "服务水平", "指标值": axis_title},
+            category_orders={"服务水平": [f"{level}%" for level in levels]},
         )
+        cost_figure.update_xaxes(type="category")
         cost_figure.update_layout(height=420, margin={"t": 60})
         st.plotly_chart(cost_figure, width="stretch")
 
