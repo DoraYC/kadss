@@ -245,6 +245,16 @@ def page_slice(
     return frame.iloc[start:end], start, end, page, pages
 
 
+def slider_ends(low: str, high: str) -> None:
+    """滑块下方常驻显示最小值/最大值：原生刻度标签只在悬停时出现。"""
+    st.markdown(
+        "<div style='display:flex;justify-content:space-between;margin-top:-0.6rem;"
+        "font-size:0.75rem;color:#808495'>"
+        f"<span>{low}</span><span>{high}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def pagination_bar(
     page_key: str, size_key: str, size: int, page: int, pages: int, total: int
 ) -> None:
@@ -445,6 +455,7 @@ def main() -> None:
             float(cfg["cost"]["penalty_factor"]),
             0.5,
         )
+        slider_ends("1.5", "5.0")
         sim_count = st.slider(
             "蒙特卡洛模拟次数",
             100,
@@ -452,6 +463,7 @@ def main() -> None:
             int(cfg["probability"]["simulation_count"]),
             100,
         )
+        slider_ends("100", "3,000")
 
         st.subheader("筛选器")
         abc_selected = st.multiselect(
