@@ -33,6 +33,7 @@ def compute_probability(
     base_date: pd.Timestamp,
     run_id: str,
     created_at: str,
+    strategy: str = "baseline",
 ) -> pd.DataFrame:
     params = cfg["probability"]
     default_level = int(cfg["safety_stock"]["default_service_level"])
@@ -40,7 +41,7 @@ def compute_probability(
     seed = int(params["seed"])
 
     baseline = kitting[
-        (kitting["strategy"] == "baseline") & (kitting["service_level"] == default_level)
+        (kitting["strategy"] == strategy) & (kitting["service_level"] == default_level)
     ]
     grouped = {str(order_id): group for order_id, group in baseline.groupby("order_id")}
 

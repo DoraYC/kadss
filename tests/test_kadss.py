@@ -223,12 +223,14 @@ class SafetyStockTest(unittest.TestCase):
 
 
 class ProbabilityTest(unittest.TestCase):
-    def _probability(self, confidence: str, gap_qty: float) -> pd.DataFrame:
+    def _probability(
+        self, confidence: str, gap_qty: float, strategy: str = "baseline"
+    ) -> pd.DataFrame:
         kitting = pd.DataFrame(
             {
                 "order_id": ["SO1"],
                 "material_id": ["M1"],
-                "strategy": ["baseline"],
+                "strategy": [strategy],
                 "service_level": [DEFAULT_LEVEL],
                 "confidence_level": [confidence],
                 "gap_qty": [gap_qty],
@@ -254,6 +256,7 @@ class ProbabilityTest(unittest.TestCase):
             pd.Timestamp("2026-11-16"),
             "run",
             "2026-11-16 00:00:00",
+            strategy=strategy,
         )
 
     def test_low_confidence_order_returns_null_probability(self) -> None:
@@ -267,6 +270,15 @@ class ProbabilityTest(unittest.TestCase):
         self.assertAlmostEqual(float(row["on_time_probability"]), 1.0)
         self.assertEqual(row["kitting_status"], "齐套")
         self.assertEqual(row["risk_level"], "低风险")
+
+    def test_non_baseline_strategy_is_supported(self) -> None:
+        """回归：勾选安全库存时齐套明细为 dynamic 策略，概率计算不能因只认 baseline 而空表报 KeyError。"""
+        frame = self._probability("high", 5.0, strategy="dynamic")
+        self.assertEqual(len(frame), 1)
+        row = frame.iloc[0]
+        self.assertEqual(row["kitting_status"], "不齐套")
+        self.assertEqual(int(row["gap_rows"]), 1)
+        self.assertFalse(pd.isna(row["on_time_probability"]))
 
 
 class ProfileTest(unittest.TestCase):

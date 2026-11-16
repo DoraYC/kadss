@@ -103,7 +103,7 @@
     }
   },
   "probability": {
-    "simulation_count": 100,
+    "simulation_count": 1000,
     "risk_low": 0.9,
     "risk_medium": 0.7,
     "seed": 20261116

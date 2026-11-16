@@ -169,6 +169,7 @@ def probability_for_scope(
     cfg = scene["cfg"]
     overridden = copy.deepcopy(cfg)
     overridden["probability"]["simulation_count"] = sim_count
+    scope = dict(zip(SCOPE_KEYS, scope_key))
     return compute_probability(
         kitting=kitting_for_scope(profile, scenario, scope_key, stamp),
         orders=scene["base"]["t_kadss_demand_order"],
@@ -177,6 +178,7 @@ def probability_for_scope(
         base_date=pd.Timestamp(cfg["base_date"]).normalize(),
         run_id=scene["run_id"],
         created_at=f"{cfg['base_date']} 00:00:00",
+        strategy="dynamic" if scope["safety_stock"] else "baseline",
     )
 
 
@@ -446,7 +448,7 @@ def main() -> None:
         sim_count = st.slider(
             "蒙特卡洛模拟次数",
             100,
-            1000,
+            3000,
             int(cfg["probability"]["simulation_count"]),
             100,
         )
@@ -561,6 +563,11 @@ def main() -> None:
         .st-key-metric-high-risk-orders [data-testid="stMetricValue"] {
             color: #b91c1c;
         }
+        .st-key-detail-gap-header h3 {
+            font-size: 1.25rem;
+            white-space: nowrap;
+            margin-bottom: 0;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -645,7 +652,14 @@ def main() -> None:
                 "样本不足的物料不进入矩阵，在明细中标注数据置信度。"
             )
 
-        st.subheader("分层明细（含数据置信度）")
+        st.subheader(
+            "分层明细（含数据置信度）",
+            help=(
+                "颜色说明：ABC 中 A 红 / B 黄 / C 绿（金额关注度递减，越红越需重点关注）；"
+                "XYZ 中 Z 红 / Y 黄 / X 绿（需求波动递增）；"
+                "组合按金额关注度与波动综合着色；数据置信度低标红，样本不足标黄。"
+            ),
+        )
         layer_table = abc_view[
             [
                 "material_id",
@@ -687,11 +701,6 @@ def main() -> None:
                 name: st.column_config.Column(name, help=help_text)
                 for name, help_text in layer_column_help(cfg).items()
             },
-        )
-        st.caption(
-            "颜色说明：ABC 中 A 红 / B 黄 / C 绿（金额关注度递减，越红越需重点关注）；"
-            "XYZ 中 Z 红 / Y 黄 / X 绿（需求波动递增）；"
-            "组合按金额关注度与波动综合着色；数据置信度低标红，样本不足标黄。"
         )
 
     # ---------------- Tab 2 齐套预警 ----------------
@@ -786,13 +795,17 @@ def main() -> None:
             )
 
             head_col, select_col = st.columns(
-                [1.6, 2], vertical_alignment="center"
+                [2.1, 1.9], vertical_alignment="center"
             )
-            head_col.markdown(
-                "<div style='height:40px;display:flex;align-items:center;font-size:1.25rem;"
-                "font-weight:600;white-space:nowrap;'>订单缺口明细与交期分布假设</div>",
-                unsafe_allow_html=True,
-            )
+            with head_col.container(key="detail-gap-header"):
+                st.subheader(
+                    "订单缺口明细与交期分布假设",
+                    help=(
+                        "交期分布假设：齐套概率以各缺口物料的总提前期 N(总提前期均值, 标准差) 为随机输入，"
+                        f"按订单独立抽样 {sim_count} 次；交期样本来自历史已收货采购单，"
+                        "样本不足时回退主数据标准提前期。"
+                    ),
+                )
             detail_order = select_col.selectbox(
                 "选择订单",
                 ["全部订单", *sorted(order_ids & set(order_view["order_id"]))],
@@ -873,10 +886,6 @@ def main() -> None:
                     page_no,
                     page_total,
                     len(detail),
-                )
-                st.caption(
-                    "交期分布假设：齐套概率以各缺口物料的总提前期 N(总提前期均值, 标准差) 为随机输入，"
-                    f"按订单独立抽样 {sim_count} 次；交期样本来自历史已收货采购单，样本不足时回退主数据标准提前期。"
                 )
 
     # ---------------- Tab 3 库存策略 ----------------

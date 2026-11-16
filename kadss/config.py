@@ -101,7 +101,7 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "probability": {
-        "simulation_count": 100,
+        "simulation_count": 1000,
         "risk_low": 0.90,
         "risk_medium": 0.70,
         "seed": 20261116,
