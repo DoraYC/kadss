@@ -3,7 +3,8 @@
 口径：
 - 策略：fixed（固定安全库存基准）vs dynamic（动态安全库存）
 - 同一物料在两策略下使用同一组日需求抽样与同一采购提前期，保证可比
-- 补货策略：库存位置 ≤ 安全库存目标时补货至「目标 + 提前期内需求」，LT 天后到货
+- 补货策略：库存位置 ≤ 再订货点时补货至「再订货点 + 提前期内需求」，LT 天后到货
+- 再订货点 = 提前期内需求（日均需求 × 提前期）+ 安全库存缓冲（固定覆盖天数 / 动态安全库存）
 - 持有成本 = 平均库存金额 × 年持有成本率 × 仿真天数 / 365
 - 缺料成本 = 缺料数量 × 单价 × 缺料惩罚系数
 """
@@ -98,6 +99,7 @@ def simulate_cost(
         fixed_point = float(base_level.loc[material_id, "fixed_ss"])
         unit_price = float(price.get(material_id, 0.0))
 
+        lead_time_demand = average_daily * lead_time_days
         for level in levels:
             dynamic_point = float(
                 safety_stock[
@@ -105,15 +107,16 @@ def simulate_cost(
                     & (safety_stock["material_id"] == material_id)
                 ]["dynamic_ss"].iat[0]
             )
-            for strategy, reorder_point in (
+            for strategy, buffer_point in (
                 ("fixed", fixed_point),
                 ("dynamic", dynamic_point),
             ):
+                reorder_point = lead_time_demand + buffer_point
                 average_inventory, shortage_qty, shortage_days = _simulate(
                     demand=demand,
                     initial_stock=initial_stock,
                     reorder_point=reorder_point,
-                    order_up_to=reorder_point + average_daily * lead_time_days,
+                    order_up_to=reorder_point + lead_time_demand,
                     lead_time_days=lead_time_days,
                 )
                 average_value = average_inventory * unit_price
