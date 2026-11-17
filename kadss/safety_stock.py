@@ -1,7 +1,8 @@
 """动态安全库存（PRD US-3 / 4.5）。
 
 公式：SS = Z × √(LT_avg × σ_d² + d_avg² × σ_LT²)
-- 采购件：LT_avg / σ_LT 取历史实际交期（已收货采购单 actual_lt）；样本不足回退物料主数据标准提前期
+- 采购件：LT_avg / σ_LT 取历史实际交期（已收货采购单 actual_lt），再叠加检验与物流段；
+  样本不足回退物料主数据标准提前期
 - 自制 / 外包件：MVP 直接用四项标准提前期之和，σ_LT = 0，标记 lt_source = master_data
 - 固定策略基准：d_avg × fixed_coverage_days（模拟「一刀切」的固定覆盖天数）
 """
@@ -63,6 +64,7 @@ def compute_safety_stock(
             "unit_price",
         ]
     ].copy()
+    # 采购件主数据中生产提前期为 0，因此四项之和等于「采购 + 检验 + 物流」
     frame["lt_total"] = (
         frame["purchase_lt"]
         + frame["production_lt"]
@@ -79,7 +81,11 @@ def compute_safety_stock(
     use_history = (frame["supply_type"] == "purchase") & (
         frame["lt_samples"] >= min_periods
     )
-    frame["lt_avg"] = np.where(use_history, frame["lt_avg_history"], frame["lt_total"])
+    frame["lt_avg"] = np.where(
+        use_history,
+        frame["lt_avg_history"] + frame["inspection_lt"] + frame["logistics_lt"],
+        frame["lt_total"],
+    )
     frame["sigma_lt"] = np.where(use_history, frame["sigma_lt_history"], 0.0)
     frame["lt_source"] = np.where(use_history, "history", "master_data")
 

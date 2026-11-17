@@ -1008,7 +1008,8 @@ def main() -> None:
                         format="%.0f",
                         help=(
                             "总提前期 = 采购 + 生产 + 检验 + 物流提前期（天）；"
-                            "历史收货样本足够时，安全库存计算改用历史提前期均值。"
+                            "采购件不经过自有生产工序，生产提前期为 0，其总提前期等于「采购 + 检验 + 物流」。"
+                            "历史收货样本足够时，安全库存计算改用历史采购交期 + 检验 + 物流。"
                         ),
                     ),
                     "动态安全库存": st.column_config.NumberColumn(
@@ -1190,9 +1191,9 @@ def main() -> None:
                 "material_name": "物料名称。",
                 "category": "物料类别，如包材、电子料。",
                 "uom": "计量单位，PCS / KG / M 等。",
-                "supply_type": "供应方式，purchase=采购、self_made=自制。",
+                "supply_type": "供应方式，purchase=采购、make=自制、outsource=外包。",
                 "purchase_lt": "采购提前期（天），从下单到到货的周期。",
-                "production_lt": "生产提前期（天）。",
+                "production_lt": "生产提前期（天）；采购件不经过自有生产，固定为 0。",
                 "inspection_lt": "质检提前期（天）。",
                 "logistics_lt": "物流提前期（天），从入库到上线。",
                 "supplier_id": "供应商编码。",

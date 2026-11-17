@@ -97,8 +97,8 @@ As a 采购员, I want to 基于需求波动和实际交期波动计算安全库
 
 **Acceptance Criteria**
 
-- [ ] 总提前期 `LT_total = 采购提前期 + 生产提前期 + 检验提前期 + 物流提前期`，四项均按物料配置；安全库存按 `SS = Z × √(LT_avg × σ_d² + d_avg² × σ_LT²)` 计算，`Z` 由目标服务水平映射，`d_avg`/`σ_d` 取自历史需求（按日统计），交期波动口径见下条。
-- [ ] 按 `supply_type` 区分口径：采购件（purchase）取历史实际交期偏差计算 `LT_avg` 与 `σ_LT`；自制/外包件（make / outsource）在 MVP 中直接使用物料主数据的四项标准提前期之和，`σ_LT` 取 0，并标记 `lt_source = master_data`；交期样本不足的采购件同样回退到标准提前期。
+- [ ] 总提前期 `LT_total = 采购提前期 + 生产提前期 + 检验提前期 + 物流提前期`，四项均按物料配置；采购件不经过自有生产工序，生产提前期固定为 0，其 `LT_total` 实际为 `采购 + 检验 + 物流`；安全库存按 `SS = Z × √(LT_avg × σ_d² + d_avg² × σ_LT²)` 计算，`Z` 由目标服务水平映射，`d_avg`/`σ_d` 取自历史需求（按日统计），交期波动口径见下条。
+- [ ] 按 `supply_type` 区分口径：采购件（purchase）的 `LT_avg` 取「历史实际交期 + 检验提前期 + 物流提前期」，`σ_LT` 取历史实际交期的样本标准差（检验与物流按确定性处理）；自制/外包件（make / outsource）在 MVP 中直接使用物料主数据的四项标准提前期之和，`σ_LT` 取 0，并标记 `lt_source = master_data`；交期样本不足的采购件同样回退到标准提前期。
 - [ ] 输出字段包含：`material_id / service_level / z_value / lt_total / lt_breakdown / lt_avg / sigma_lt / avg_demand / sigma_demand / dynamic_ss / fixed_ss / delta / confidence_level`。
 - [ ] 服务水平、统计窗口长度、回退规则均通过配置文件调整，不需要改代码。
 - [ ] 提供至少 3 档服务水平（如 90%/95%/99%）的批量计算结果，供后续成本仿真使用。

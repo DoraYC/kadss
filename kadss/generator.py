@@ -71,7 +71,10 @@ def _build_materials(
     supply_type = rng.choice(SUPPLY_TYPES, count, p=SUPPLY_WEIGHTS)
     unit_price = np.round(rng.lognormal(3.2, 1.0, count), 2)
     purchase_lt = rng.integers(5, 46, count).astype(float)
-    production_lt = rng.integers(3, 21, count).astype(float)
+    # 采购件不经过自有生产工序，生产提前期固定为 0；随机数照常抽取以保持既有数据流不变
+    production_lt = np.where(
+        supply_type == "purchase", 0.0, rng.integers(3, 21, count).astype(float)
+    )
     inspection_lt = rng.integers(0, 4, count).astype(float)
     logistics_lt = rng.integers(1, 8, count).astype(float)
     category = rng.choice(CATEGORIES, count, p=CATEGORY_WEIGHTS)

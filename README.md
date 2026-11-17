@@ -29,7 +29,7 @@
 
 ## 快速开始
 
-要求 Python 3.12+（本地验证环境为 3.14）。
+要求 Python 3.12。仓库根 `.python-version` 固定为 `3.12`，`requirements.txt` 在 Python 3.12.16 上实测 `freeze` 锁定（numpy / pandas / pyarrow 均使用预编译 wheel，不触发源码构建）。
 
 ```bash
 python3 -m venv .venv
@@ -162,7 +162,7 @@ docs/architecture-kadss/    技术架构（TAD）
 
 1. 将仓库推到 GitHub，确认 `data/`、`config/`、`requirements.txt` 已提交。
 2. 在 <https://share.streamlit.io> 新建 App，选择仓库与 `main` 分支，主文件填 `app.py`。
-3. Python 版本选择 Cloud 当前支持的最新版本（本地验证为 3.14；若不可选，用 Cloud 提供的最新 3.x）。
+3. 无需手动选 Python 版本：仓库根 `.python-version` 已固定为 `3.12`，Cloud 会按该文件创建运行环境。
 4. 直接 Deploy。`data/` 内已包含三个场景的预计算库，无需在云端重跑批处理。
 5. 若之后修改配置或数据，需本地重新执行 `build_dataset` → `build_results`，并提交新的 `data/`；否则看板会因 `run_id` 不匹配而拒绝启动。
 
