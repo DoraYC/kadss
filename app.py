@@ -35,6 +35,21 @@ from kadss.store import output_paths
 
 st.set_page_config(page_title="KADSS · 供应链齐套预警", page_icon="K", layout="wide")
 
+# 全局隐藏所有标题旁的锚点链接小按钮
+st.markdown(
+    """
+    <style>
+    h1 > div > a, h2 > div > a, h3 > div > a,
+    h4 > div > a, h5 > div > a, h6 > div > a,
+    h1 a.header-anchor, h2 a.header-anchor, h3 a.header-anchor,
+    h4 a.header-anchor, h5 a.header-anchor, h6 a.header-anchor {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 ABC_LEVELS = ("A", "B", "C")
 XYZ_LEVELS = ("X", "Y", "Z")
 UNCLASSIFIED = "未分层"
@@ -436,8 +451,13 @@ def main() -> None:
         inc_allocated = st.checkbox("已分配", value=default_scope["allocated"])
         inc_quality_hold = st.checkbox("质检锁定", value=default_scope["quality_hold"])
         inc_safety_stock = st.checkbox(
-            f"安全库存（默认采用 {default_level}% 服务水平档位）",
+            f"安全库存（扣减 {default_level}% 服务水平档位的动态安全库存）",
             value=default_scope["safety_stock"],
+            help=(
+                "齐套预警的可用量口径固定扣减 95% 服务水平档位的动态安全库存，"
+                "不随下方「目标服务水平」选择联动。"
+                "不同服务水平档位的齐套结果已在成本对比 tab 预计算。"
+            ),
         )
 
         st.subheader("安全库存参数")
@@ -565,7 +585,7 @@ def main() -> None:
     )
     if inc_safety_stock:
         st.info(
-            f"已勾选安全库存：齐套明细按 {default_level}% 服务水平档位的动态安全库存扣减可用量，"
+            f"已勾选安全库存：齐套明细按 95% 服务水平档位的动态安全库存扣减可用量，"
             "仅在内存重算。"
         )
 
@@ -595,8 +615,8 @@ def main() -> None:
     )
     st.caption("以上指标按当前筛选范围统计；齐套概率与风险等级按当前可用量口径重算。")
 
-    tab_layers, tab_kitting, tab_stock, tab_cost = st.tabs(
-        ["物料分层", "齐套预警", "库存策略", "成本对比"]
+    tab_layers, tab_kitting, tab_stock, tab_cost, tab_base = st.tabs(
+        ["物料分层", "齐套预警", "库存策略", "成本对比", "基础数据"]
     )
 
     # ---------------- Tab 1 物料分层 ----------------
@@ -873,8 +893,8 @@ def main() -> None:
                         "available_qty": "可用量",
                         "gap_qty": "缺口",
                         "gap_amount": "缺口金额（元）",
-                        "lt_avg": "总提前期均值（天）",
-                        "sigma_lt": "总提前期标准差（天）",
+                        "lt_avg": "采购提前期均值（天）",
+                        "sigma_lt": "采购提前期标准差（天）",
                         "lt_source": "交期来源",
                     }
                 )
@@ -887,8 +907,8 @@ def main() -> None:
                         "可用量": st.column_config.NumberColumn(format="%.1f"),
                         "缺口": st.column_config.NumberColumn(format="%.1f"),
                         "缺口金额（元）": st.column_config.NumberColumn(format="%.2f"),
-                        "总提前期均值（天）": st.column_config.NumberColumn(format="%.1f"),
-                        "总提前期标准差（天）": st.column_config.NumberColumn(format="%.1f"),
+                        "采购提前期均值（天）": st.column_config.NumberColumn(format="%.1f"),
+                        "采购提前期标准差（天）": st.column_config.NumberColumn(format="%.1f"),
                     },
                 )
                 pagination_bar(
@@ -1143,6 +1163,116 @@ def main() -> None:
         st.caption(
             f"成本参数为假设值：年持有成本率 {cfg['cost']['holding_rate']:.0%}、"
             f"仿真周期 {cfg['cost']['simulation_days']} 天、缺料惩罚系数 {penalty:.1f} 倍。"
+        )
+
+    # ---------------- Tab 5 基础数据 ----------------
+    with tab_base:
+        BASE_TABLE_LABELS = {
+            "t_kadss_material": "物料主档",
+            "t_kadss_bom": "BOM 结构",
+            "t_kadss_inventory": "库存快照",
+            "t_kadss_purchase_order": "采购订单",
+            "t_kadss_demand_order": "需求订单",
+            "t_kadss_demand_history": "历史需求",
+        }
+        label_to_key = {v: k for k, v in BASE_TABLE_LABELS.items()}
+        selected_label = st.selectbox(
+            "选择基础表",
+            options=list(BASE_TABLE_LABELS.values()),
+            key="base-table-select",
+        )
+        key = label_to_key[selected_label]
+        df = base[key]
+
+        BASE_COLUMN_HELP: dict[str, dict[str, str]] = {
+            "t_kadss_material": {
+                "material_id": "物料编码，系统内唯一标识。",
+                "material_name": "物料名称。",
+                "category": "物料类别，如包材、电子料。",
+                "uom": "计量单位，PCS / KG / M 等。",
+                "supply_type": "供应方式，purchase=采购、self_made=自制。",
+                "purchase_lt": "采购提前期（天），从下单到到货的周期。",
+                "production_lt": "生产提前期（天）。",
+                "inspection_lt": "质检提前期（天）。",
+                "logistics_lt": "物流提前期（天），从入库到上线。",
+                "supplier_id": "供应商编码。",
+                "unit_price": "单位采购价（元）。",
+                "status": "状态：active=在用、inactive=停用。",
+            },
+            "t_kadss_bom": {
+                "bom_id": "BOM 行唯一编号。",
+                "parent_material_id": "父物料编码。",
+                "child_material_id": "子物料编码（被消耗的物料）。",
+                "quantity_per": "每台父物料消耗的子物料数量。",
+                "unit": "单位。",
+                "is_substitute": "是否替代料：0=主料、1=替代料。",
+                "is_phantom": "是否虚拟件：0=实件、1=虚拟件不单独建号。",
+                "version": "BOM 版本号。",
+                "effective_date": "该版本生效日期。",
+            },
+            "t_kadss_inventory": {
+                "inventory_id": "库存快照行唯一编号。",
+                "material_id": "物料编码。",
+                "on_hand": "现有实存数量（在库、良品）。",
+                "in_transit": "在途数量（已下单未到货）。",
+                "allocated": "已分配数量（锁定给特定订单）。",
+                "quality_hold": "质检冻结数量（不合格或待检）。",
+                "snapshot_date": "快照日期，所有数量均为该日状态。",
+            },
+            "t_kadss_purchase_order": {
+                "po_id": "采购订单号。",
+                "material_id": "物料编码。",
+                "qty": "下单数量。",
+                "expected_arrival": "预计到货日期。",
+                "promised_lt": "供应商承诺提前期（天），= 预计到货日 − 下单日。",
+                "actual_lt": "实际提前期（天），仅已收货订单有值。",
+                "status": "PO 状态：open / received / cancelled。",
+                "created_at": "下单时间。",
+            },
+            "t_kadss_demand_order": {
+                "order_id": "需求单号（客户订单、维修备件等统一编号）。",
+                "order_type": "需求类型，如客户订单、维修备件需求。",
+                "material_id": "物料编码（成品或半成品）。",
+                "qty": "需求数量。",
+                "required_date": "客户要求的交付日期。",
+                "actual_completion_date": "实际完成日期，未完成则为空。",
+                "status": "订单状态：open / completed / closed。",
+                "created_at": "订单创建时间。",
+            },
+            "t_kadss_demand_history": {
+                "history_id": "历史需求行唯一编号。",
+                "material_id": "物料编码。",
+                "demand_date": "需求日期（通常按天）。",
+                "demand_qty": "该日期的实际需求量。",
+            },
+        }
+
+        column_config = {
+            name: st.column_config.Column(name, help=help_text)
+            for name, help_text in BASE_COLUMN_HELP.get(key, {}).items()
+            if name in df.columns
+        }
+
+        st.metric("行数", f"{len(df):,}")
+
+        MAX_PREVIEW = 5000
+        if len(df) > MAX_PREVIEW:
+            show_all = st.checkbox(
+                f"数据量较大（{len(df):,} 行），勾选显示全部",
+                value=False,
+                key=f"show-all-{key}",
+            )
+            display_df = df if show_all else df.head(MAX_PREVIEW)
+            if not show_all:
+                st.caption(f"仅展示前 {MAX_PREVIEW:,} 行，完整数据可勾选上方选项查看。")
+        else:
+            display_df = df
+
+        st.dataframe(
+            display_df,
+            width="stretch",
+            hide_index=True,
+            column_config=column_config,
         )
 
     st.divider()
